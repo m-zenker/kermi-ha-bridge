@@ -5,16 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
-## [Unreleased]
+## [0.4.0] — 2026-03-25
+
+### Added
+- `mqtt_mixin.py` — new `MQTTMixin` shared base class providing MQTT Discovery helpers (sensor/binary_sensor/button/number/select/switch discovery, state/attribute/availability publishing, command subscriptions, legacy cleanup); opt-in via `mqtt_discovery: true` in `apps.yaml`
+- `kermi_bridge.py` — 6 MQTT control entities when MQTT Discovery is enabled: per-circuit energy mode selects (mk1/mk2/hk), DHW setpoint number (0–85°C), heating curve shift numbers per configured circuit, quiet mode switch, DHW oneshot button, refresh button; replaces AppDaemon services for HA-native entity control
+- `kermi_client.py` / `kermi_bridge.py` — added `sensor.kermi_electricity_heating_kwh` and `sensor.kermi_electricity_dhw_kwh`; split electricity counters (heating-only / DHW-only) are now polled and published with `device_class: energy`, `state_class: total_increasing` so both can be added as individual device consumption entries in the HA Energy Dashboard
 
 ### Fixed
+- `kermi_bridge.py` — `kermi_bridge_status` was published twice during MQTT Discovery init (once from `_SENSOR_DISCOVERY` list without attrs_topic, then again manually with attrs_topic); removed the duplicate entry from the list
+- `kermi_bridge.py` — `import asyncio` moved from 6 inline handler sites to module level
 - `kermi_bridge.py` — added `unit_of_measurement` to all `_ENTITY_ATTRS` entries that carry a `device_class`; HA 2026.3 rejects `set_state` calls for `power`, `temperature`, and `energy` device-class sensors that omit the unit, resulting in 400 errors on every poll
 - `kermi_bridge.py` — added `state_class: measurement` to `sensor.kermi_compressor_power_kw` and `sensor.kermi_heating_output_kw`; HA 2026.3 also requires `state_class` for `device_class: power` sensors or the set_state call returns 400
 - `kermi_bridge.py` — state values in `_publish_sensors` are now cast to `str` before calling `set_state`; HA 2026.3 rejects a JSON numeric `0` (but not the string `"0.0"`) for `device_class: power` + `state_class: measurement` sensors, causing persistent 400 errors whenever compressor or heating output power is zero
 - `kermi_client.py` — `aiohttp.ClientSession` now created with `CookieJar(unsafe=True)`; aiohttp's default jar silently drops cookies from IP-address hosts (RFC compliance), so the `.AspNetCore.Cookie` set by the Kermi login response was never stored, causing every subsequent request to return 401 and halting polling
-
-### Added
-- `kermi_client.py` / `kermi_bridge.py` — added `sensor.kermi_electricity_heating_kwh` and `sensor.kermi_electricity_dhw_kwh`; split electricity counters (heating-only / DHW-only) are now polled and published with `device_class: energy`, `state_class: total_increasing` so both can be added as individual device consumption entries in the HA Energy Dashboard
 
 ## [0.3.0] — 2026-03-17
 
