@@ -1,9 +1,24 @@
 # kermi-ha-bridge
 
-AppDaemon app that bridges the **Kermi x-change dynamic** heat pump (x-center Interfacemodul) to Home Assistant.
+*Local API bridge for the Kermi x-change heat pump — full Home Assistant control, no cloud, no Modbus.*
 
-Communicates directly with the x-center's local HTTP API — no Modbus, no cloud.
-Publishes `sensor.kermi_*` entities to HA and registers six control services.
+![Version](https://img.shields.io/badge/version-v0.8.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-142%20passing-brightgreen) ![AppDaemon](https://img.shields.io/badge/AppDaemon-4.x-orange)
+
+AppDaemon app that bridges the **Kermi x-change dynamic** heat pump (x-center Interfacemodul) to Home Assistant via its local HTTP API. Publishes 20+ `sensor.kermi_*` entities and six control services — with no Modbus adapter, no cloud dependency, and no third-party middleware.
+
+> **Note:** Requires the Kermi x-center Interfacemodul reachable on your LAN and AppDaemon 4.x running alongside Home Assistant.
+
+---
+
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Published entities](#published-entities)
+- [Available services](#available-services)
+- [Events fired](#events-fired)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
 
 ---
 
@@ -157,3 +172,9 @@ AppDaemon log location: `/config/appdaemon/logs/appdaemon.log`
 pip install -r requirements.txt
 python -m pytest tests/ -v
 ```
+
+---
+
+## Licence
+
+[MIT](LICENSE) © 2026 Martin Zenker

@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
+## [0.8.0] — 2026-03-25
+
+### Added
+- `LICENSE` — MIT licence file
+- `README.md` — tagline, shields.io badges (version, licence, tests, AppDaemon), table of contents, polished intro paragraph, Licence section
+
+---
+
 ## [0.4.0] — 2026-03-25
 
 ### Added
