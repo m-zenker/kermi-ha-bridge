@@ -145,6 +145,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
             device_id=kb.get("device_id"),
             timeout=kb["timeout_s"],
         )
+        self._loop = asyncio.get_event_loop()
 
         self._mqtt_setup(self.args, "kermi_bridge", _KERMI_DEVICE)
         if self._mqtt_enabled:
@@ -461,7 +462,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
         if mode is None:
             self.log(f"set_energy_mode via MQTT: unknown mode '{payload}'", level="ERROR")
             return
-        asyncio.ensure_future(self._do_set_energy_mode(mode, [circuit.upper()]))
+        asyncio.run_coroutine_threadsafe(self._do_set_energy_mode(mode, [circuit.upper()]), self._loop)
 
     async def _do_set_energy_mode(self, mode: EnergyMode, circuits: list[str]) -> None:
         try:
@@ -479,7 +480,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
         if not (0 <= temp <= 85):
             self.log(f"set_dhw_setpoint: {temp} out of range [0–85]", level="ERROR")
             return
-        asyncio.ensure_future(self._do_set_dhw_setpoint(temp))
+        asyncio.run_coroutine_threadsafe(self._do_set_dhw_setpoint(temp), self._loop)
 
     async def _do_set_dhw_setpoint(self, temp: float) -> None:
         try:
@@ -490,7 +491,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
             self.log(f"set_dhw_setpoint failed: {exc}", level="ERROR")
 
     def _on_cmd_dhw_oneshot(self, data: dict) -> None:
-        asyncio.ensure_future(self._do_trigger_dhw_oneshot())
+        asyncio.run_coroutine_threadsafe(self._do_trigger_dhw_oneshot(), self._loop)
 
     async def _do_trigger_dhw_oneshot(self) -> None:
         try:
@@ -501,7 +502,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
     def _on_cmd_quiet_mode(self, data: dict) -> None:
         payload = str(data.get("payload", "")).upper()
         enabled = payload == "ON"
-        asyncio.ensure_future(self._do_set_quiet_mode(enabled))
+        asyncio.run_coroutine_threadsafe(self._do_set_quiet_mode(enabled), self._loop)
 
     async def _do_set_quiet_mode(self, enabled: bool) -> None:
         try:
@@ -525,7 +526,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
                 f"set_heating_curve_shift: {shift} out of range [-5, 5]", level="ERROR"
             )
             return
-        asyncio.ensure_future(self._do_set_heating_curve_shift(shift, circuit))
+        asyncio.run_coroutine_threadsafe(self._do_set_heating_curve_shift(shift, circuit), self._loop)
 
     async def _do_set_heating_curve_shift(self, shift: int, circuit: str) -> None:
         try:
@@ -537,7 +538,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
             self.log(f"set_heating_curve_shift failed: {exc}", level="ERROR")
 
     def _on_cmd_refresh(self, data: dict) -> None:
-        asyncio.ensure_future(self._poll({}))
+        asyncio.run_coroutine_threadsafe(self._poll({}), self._loop)
 
     # ── Legacy service handlers ────────────────────────────────────────────────
 
