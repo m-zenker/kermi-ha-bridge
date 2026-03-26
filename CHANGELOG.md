@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
-## [Unreleased]
+## [0.8.1] — 2026-03-26
 
 ### Fixed
 - `kermi_bridge.py` — MQTT command callbacks crashed with `RuntimeError: There is no current event loop in thread 'thread-2'` because `asyncio.ensure_future()` was called from AppDaemon worker threads. Replaced with `asyncio.run_coroutine_threadsafe(..., self._loop)`, capturing the loop in `initialize()`.
