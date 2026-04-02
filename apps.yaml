@@ -1,0 +1,5 @@
+kermi_bridge:
+  module: kermi_bridge.kermi_bridge
+  class: KermiBridge
+  em_config_path: /config/appdaemon/apps/kermi_bridge/config.yaml
+  # mqtt_discovery: true   # Uncomment to enable MQTT Discovery entities

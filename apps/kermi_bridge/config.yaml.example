@@ -1,0 +1,8 @@
+kermi_bridge:
+  host: 192.168.1.121        # x-center IP address
+  password: "1234"           # web UI password (see unit sticker)
+  # device_id: "67b4e4ca-…" # optional; auto-discovered if omitted
+  poll_interval_s: 30        # minimum 10
+  max_failures: 5            # failures before connection_error event fires
+  timeout_s: 10
+  circuits: [MK1, MK2]      # heating circuits to control; valid: MK1, MK2, HK

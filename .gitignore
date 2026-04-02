@@ -5,3 +5,8 @@ __pycache__/
 dist/
 build/
 .venv/
+
+# Claude Code
+CLAUDE.md
+MEMORY.md
+memory/

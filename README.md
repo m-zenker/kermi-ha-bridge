@@ -2,7 +2,7 @@
 
 *Local API bridge for the Kermi x-change heat pump — full Home Assistant control, no cloud, no Modbus.*
 
-![Version](https://img.shields.io/badge/version-v0.8.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-142%20passing-brightgreen) ![AppDaemon](https://img.shields.io/badge/AppDaemon-4.x-orange)
+![Version](https://img.shields.io/badge/version-v0.8.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-142%20passing-brightgreen) ![AppDaemon](https://img.shields.io/badge/AppDaemon-4.x-orange)
 
 AppDaemon app that bridges the **Kermi x-change dynamic** heat pump (x-center Interfacemodul) to Home Assistant via its local HTTP API. Publishes 20+ `sensor.kermi_*` entities and six control services — with no Modbus adapter, no cloud dependency, and no third-party middleware.
 
@@ -24,14 +24,24 @@ AppDaemon app that bridges the **Kermi x-change dynamic** heat pump (x-center In
 
 ## Installation
 
-### 1 — Clone and copy files
+### Via HACS (recommended)
+
+1. Add this repo as a custom HACS repository (type: AppDaemon).
+2. Install "Kermi HA Bridge" from HACS.
+3. Copy `apps/kermi_bridge/config.yaml.example` → `/config/appdaemon/apps/kermi_bridge/config.yaml` and edit it.
+4. Add the contents of `apps.yaml` to your AppDaemon `/config/appdaemon/apps/apps.yaml`.
+5. Restart AppDaemon.
+
+### Manual installation
+
+**1 — Clone and copy files**
 
 ```bash
 git clone http://forgejo:3000/martin/kermi-ha-bridge.git
 cp -r kermi-ha-bridge/apps/kermi_bridge /config/appdaemon/apps/
 ```
 
-### 2 — Register the app
+**2 — Register the app**
 
 Add to `/config/appdaemon/apps/apps.yaml`:
 
@@ -42,7 +52,7 @@ kermi_bridge:
   em_config_path: /config/appdaemon/apps/kermi_bridge/config.yaml
 ```
 
-### 3 — Create the config file
+**3 — Create the config file**
 
 Create `/config/appdaemon/apps/kermi_bridge/config.yaml`:
 
@@ -60,7 +70,7 @@ kermi_bridge:
 > `device_id` can be omitted — the bridge discovers it automatically on first connect.
 > To find it manually: `GET http://<ip>/api/Device/GetAllDevices/00000000-0000-0000-0000-000000000000`
 
-### 4 — Restart AppDaemon and verify
+**4 — Restart AppDaemon and verify**
 
 Restart AppDaemon, then confirm in **HA Developer Tools → States**:
 
