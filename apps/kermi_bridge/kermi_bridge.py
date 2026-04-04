@@ -20,6 +20,7 @@ from kermi_bridge.kermi_client import (
     KermiConnectionError,
     KermiError,
     KermiSensors,
+    WezMode,
 )
 from kermi_bridge.mqtt_mixin import MQTTMixin
 from .config_loader import ConfigError, load_config
@@ -28,6 +29,8 @@ _LOGGER = logging.getLogger(__name__)
 
 _ENERGY_MODE_NAMES = {e.name: e for e in EnergyMode}
 _ENERGY_MODE_OPTIONS = [e.name for e in EnergyMode]
+_WEZ_MODE_OPTIONS = [e.name for e in WezMode]
+_WEZ_MODE_NAMES = {e.name: e for e in WezMode}
 
 # Device block for MQTT Discovery
 _KERMI_DEVICE = {
@@ -61,6 +64,16 @@ _ALL_SENSOR_ENTITIES = [
     "sensor.kermi_energy_mode_hk",
     "sensor.kermi_electricity_heating_kwh",
     "sensor.kermi_electricity_dhw_kwh",
+    "sensor.kermi_wez1_status",
+    "sensor.kermi_wez1_operating_hours",
+    "sensor.kermi_wez1_betriebsart",
+    "sensor.kermi_wez2_status",
+    "sensor.kermi_wez2_operating_hours",
+    "sensor.kermi_wez2_betriebsart",
+    "sensor.kermi_wp_return_temp",
+    "sensor.kermi_wp_flow_temp_lc",
+    "sensor.kermi_cop_heating_live",
+    "sensor.kermi_cop_dhw_live",
 ]
 
 # Static HA attributes for each published entity (device_class, state_class, etc.).
@@ -91,6 +104,18 @@ _ENTITY_ATTRS: dict[str, dict] = {
     "sensor.kermi_energy_mode_mk1":          {},
     "sensor.kermi_energy_mode_mk2":          {},
     "sensor.kermi_energy_mode_hk":           {},
+    # WEZ entities
+    "sensor.kermi_wez1_status":              {},
+    "sensor.kermi_wez1_operating_hours":     {"state_class": "total_increasing", "unit_of_measurement": "h"},
+    "sensor.kermi_wez1_betriebsart":         {},
+    "sensor.kermi_wez2_status":              {},
+    "sensor.kermi_wez2_operating_hours":     {"state_class": "total_increasing", "unit_of_measurement": "h"},
+    "sensor.kermi_wez2_betriebsart":         {},
+    # WEZ additional monitoring sensors
+    "sensor.kermi_wp_return_temp":           {"device_class": "temperature", "unit_of_measurement": "°C"},
+    "sensor.kermi_wp_flow_temp_lc":          {"device_class": "temperature", "unit_of_measurement": "°C"},
+    "sensor.kermi_cop_heating_live":         {"state_class": "measurement"},
+    "sensor.kermi_cop_dhw_live":             {"state_class": "measurement"},
 }
 
 # MQTT sensor discovery config: (uid, name, unit, icon, device_class, state_class)
@@ -114,6 +139,14 @@ _SENSOR_DISCOVERY = [
     ("kermi_electricity_dhw_kwh", "Kermi Electricity DHW",        "kWh", "mdi:lightning-bolt", "energy",      "total_increasing"),
     ("kermi_hp_state",          "Kermi HP State",                 "",    "mdi:heat-pump",      None,          None),
     ("kermi_smart_grid_status", "Kermi Smart Grid Status",        "",    "mdi:transmission-tower", None,      None),
+    ("kermi_wez1_status",          "Kermi WEZ 1 Status",          "",    "mdi:heat-pump-outline", None,        None),
+    ("kermi_wez1_operating_hours", "Kermi WEZ 1 Operating Hours", "h",   "mdi:clock-outline",     None,        "total_increasing"),
+    ("kermi_wez2_status",          "Kermi WEZ 2 Status",          "",    "mdi:heat-pump-outline", None,        None),
+    ("kermi_wez2_operating_hours", "Kermi WEZ 2 Operating Hours", "h",   "mdi:clock-outline",     None,        "total_increasing"),
+    ("kermi_wp_return_temp",       "Kermi WP Return Temp",        "°C",  "mdi:thermometer",       "temperature", "measurement"),
+    ("kermi_wp_flow_temp_lc",      "Kermi WP Flow Temp LC",       "°C",  "mdi:thermometer",       "temperature", "measurement"),
+    ("kermi_cop_heating_live",     "Kermi COP Heating (live)",    "",    "mdi:heat-pump",         None,          "measurement"),
+    ("kermi_cop_dhw_live",         "Kermi COP DHW (live)",        "",    "mdi:water-boiler",      None,          "measurement"),
     # Note: kermi_bridge_status is published separately in _publish_mqtt_discovery()
     # because it requires a json_attrs_topic — do not add it here.
 ]
@@ -149,6 +182,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
         self._mqtt_setup(self.args, "kermi_bridge", _KERMI_DEVICE)
         if self._mqtt_enabled:
+            self._cleanup_unscoped_mqtt_entities()
             self._publish_mqtt_discovery()
             self._subscribe_mqtt_commands()
             self._mqtt_publish_availability("online")
@@ -163,6 +197,52 @@ class KermiBridge(MQTTMixin, hass.Hass):
             f"KermiBridge initialized (poll every {self._poll_interval_s}s)",
             level="INFO",
         )
+
+    def _cleanup_unscoped_mqtt_entities(self) -> None:
+        """Remove old MQTT-discovered entities from HA registry (before unique_id scoping fix).
+
+        Before the fix, MQTT discovery published sensors with unscoped unique_ids
+        (e.g., "kermi_outside_temp"). After the fix, they are scoped
+        (e.g., "em_kermi_bridge_kermi_outside_temp"). This method publishes empty
+        configs to the old discovery topics, telling HA's MQTT discovery to delete them.
+        """
+        # Old sensor UIDs (from unscoped MQTT discovery)
+        old_sensor_uids = [uid for uid, *_ in _SENSOR_DISCOVERY] + ["kermi_bridge_status"]
+        for uid in old_sensor_uids:
+            topic = self._discovery_topic("sensor", uid)
+            self._mqtt_publish(topic, "", retain=True)
+
+        # Old binary sensor
+        topic = self._discovery_topic("binary_sensor", "kermi_evu_lock")
+        self._mqtt_publish(topic, "", retain=True)
+
+        # Old select entities (energy modes, WEZ Betriebsart)
+        for circuit in ["mk1", "mk2", "hk"]:
+            topic = self._discovery_topic("select", f"kermi_energy_mode_{circuit}")
+            self._mqtt_publish(topic, "", retain=True)
+
+        for wez_n in [1, 2]:
+            topic = self._discovery_topic("select", f"kermi_wez{wez_n}_betriebsart")
+            self._mqtt_publish(topic, "", retain=True)
+
+        # Old number entities (DHW setpoint, heating curve shifts)
+        topic = self._discovery_topic("number", "kermi_dhw_setpoint")
+        self._mqtt_publish(topic, "", retain=True)
+
+        for circuit in self._circuits:
+            topic = self._discovery_topic("number", f"kermi_heating_curve_shift_{circuit}")
+            self._mqtt_publish(topic, "", retain=True)
+
+        # Old switch entity (quiet mode)
+        topic = self._discovery_topic("switch", "kermi_quiet_mode")
+        self._mqtt_publish(topic, "", retain=True)
+
+        # Old button entities
+        for button_uid in ["kermi_dhw_oneshot", "kermi_refresh"]:
+            topic = self._discovery_topic("button", button_uid)
+            self._mqtt_publish(topic, "", retain=True)
+
+        self.log("Removed old unscoped MQTT entities from HA registry", level="INFO")
 
     def _publish_mqtt_discovery(self) -> None:
         # Scalar sensors
@@ -191,6 +271,15 @@ class KermiBridge(MQTTMixin, hass.Hass):
                 f"Kermi Energy Mode {circuit.upper()}",
                 _ENERGY_MODE_OPTIONS,
                 "mdi:tune",
+            )
+
+        # WEZ Betriebsart selects: both WEZ 1 and WEZ 2 always published.
+        for wez_n in [1, 2]:
+            self._mqtt_publish_select_discovery(
+                f"kermi_wez{wez_n}_betriebsart",
+                f"Kermi WEZ {wez_n} Betriebsart",
+                _WEZ_MODE_OPTIONS,
+                "mdi:tune-variant",
             )
 
         # DHW setpoint number
@@ -231,6 +320,13 @@ class KermiBridge(MQTTMixin, hass.Hass):
             self._mqtt_subscribe_command(
                 "select", uid,
                 lambda event, data, kwargs, c=circuit: self._on_cmd_energy_mode(c, data),
+            )
+
+        # WEZ Betriebsart selects
+        for wez_n in [1, 2]:
+            self._mqtt_subscribe_command(
+                "select", f"kermi_wez{wez_n}_betriebsart",
+                lambda event, data, kwargs, n=wez_n: self._on_cmd_wez_mode(n, data),
             )
 
         # DHW setpoint
@@ -278,6 +374,9 @@ class KermiBridge(MQTTMixin, hass.Hass):
         )
         self.register_service(
             "kermi_bridge/set_heating_curve_shift", self._svc_set_heating_curve_shift
+        )
+        self.register_service(
+            "kermi_bridge/set_wez_mode", self._svc_set_wez_mode
         )
         self.register_service("kermi_bridge/refresh", self._svc_refresh)
 
@@ -362,6 +461,14 @@ class KermiBridge(MQTTMixin, hass.Hass):
             ("kermi_electricity_dhw_kwh",      sensors.electricity_dhw_kwh),
             ("kermi_hp_state",                 sensors.hp_state),
             ("kermi_smart_grid_status",        sensors.smart_grid_status),
+            ("kermi_wez1_status",              sensors.wez1_status),
+            ("kermi_wez1_operating_hours",     sensors.wez1_operating_hours),
+            ("kermi_wez2_status",              sensors.wez2_status),
+            ("kermi_wez2_operating_hours",     sensors.wez2_operating_hours),
+            ("kermi_wp_return_temp",           sensors.wp_return_temp),
+            ("kermi_wp_flow_temp_lc",          sensors.wp_flow_temp_lc),
+            ("kermi_cop_heating_live",         sensors.cop_heating_live),
+            ("kermi_cop_dhw_live",             sensors.cop_dhw_live),
         ]
         for uid, value in simple:
             if value is None:
@@ -389,6 +496,15 @@ class KermiBridge(MQTTMixin, hass.Hass):
                 self._mqtt_set_sensor_raw(uid, mode.name)
                 self._mqtt_publish_sensor_attributes(uid, {"mode_int": int(mode)})
 
+        # WEZ Betriebsart selects
+        for wez_n, mode in [(1, sensors.wez1_betriebsart), (2, sensors.wez2_betriebsart)]:
+            uid = f"kermi_wez{wez_n}_betriebsart"
+            if mode is None:
+                self._mqtt_set_sensor_raw(uid, "unavailable")
+            else:
+                self._mqtt_set_sensor_raw(uid, mode.name)
+                self._mqtt_publish_sensor_attributes(uid, {"mode_int": int(mode)})
+
     def _set_state_publish_sensors(self, sensors: KermiSensors) -> None:
         simple = [
             ("sensor.kermi_outside_temp",             sensors.outside_temp),
@@ -410,6 +526,14 @@ class KermiBridge(MQTTMixin, hass.Hass):
             ("sensor.kermi_electricity_dhw_kwh",      sensors.electricity_dhw_kwh),
             ("sensor.kermi_hp_state",                 sensors.hp_state),
             ("sensor.kermi_smart_grid_status",        sensors.smart_grid_status),
+            ("sensor.kermi_wez1_status",              sensors.wez1_status),
+            ("sensor.kermi_wez1_operating_hours",     sensors.wez1_operating_hours),
+            ("sensor.kermi_wez2_status",              sensors.wez2_status),
+            ("sensor.kermi_wez2_operating_hours",     sensors.wez2_operating_hours),
+            ("sensor.kermi_wp_return_temp",           sensors.wp_return_temp),
+            ("sensor.kermi_wp_flow_temp_lc",          sensors.wp_flow_temp_lc),
+            ("sensor.kermi_cop_heating_live",         sensors.cop_heating_live),
+            ("sensor.kermi_cop_dhw_live",             sensors.cop_dhw_live),
         ]
         for entity_id, value in simple:
             self.set_state(
@@ -443,6 +567,20 @@ class KermiBridge(MQTTMixin, hass.Hass):
                     entity_id, state=mode.name, attributes={"mode_int": int(mode)}
                 )
 
+        # WEZ Betriebsart sensors
+        for entity_id, mode in [
+            ("sensor.kermi_wez1_betriebsart", sensors.wez1_betriebsart),
+            ("sensor.kermi_wez2_betriebsart", sensors.wez2_betriebsart),
+        ]:
+            if mode is None:
+                self.set_state(
+                    entity_id,
+                    state="unavailable",
+                    attributes=_ENTITY_ATTRS.get(entity_id, {}),
+                )
+            else:
+                self.set_state(entity_id, state=mode.name, attributes={"mode_int": int(mode)})
+
     def _mark_all_unavailable(self) -> None:
         if self._mqtt_enabled:
             self._mqtt_publish_availability("offline")
@@ -469,6 +607,20 @@ class KermiBridge(MQTTMixin, hass.Hass):
             await self._client.set_energy_mode(mode, circuits)
         except Exception as exc:
             self.log(f"set_energy_mode failed: {exc}", level="ERROR")
+
+    def _on_cmd_wez_mode(self, wez: int, data: dict) -> None:
+        payload = str(data.get("payload", "")).upper()
+        mode = _WEZ_MODE_NAMES.get(payload)
+        if mode is None:
+            self.log(f"set_wez_mode via MQTT: unknown mode '{payload}'", level="ERROR")
+            return
+        asyncio.run_coroutine_threadsafe(self._do_set_wez_mode(wez, mode), self._loop)
+
+    async def _do_set_wez_mode(self, wez: int, mode: WezMode) -> None:
+        try:
+            await self._client.set_wez_mode(wez, mode)
+        except Exception as exc:
+            self.log(f"set_wez_mode WEZ{wez} failed: {exc}", level="ERROR")
 
     def _on_cmd_dhw_setpoint(self, data: dict) -> None:
         payload = data.get("payload", "")
@@ -626,6 +778,23 @@ class KermiBridge(MQTTMixin, hass.Hass):
             await self._client.set_heating_curve_shift(shift, circuits)
         except KermiError as exc:
             self.log(f"set_heating_curve_shift failed: {exc}", level="ERROR")
+
+    async def _svc_set_wez_mode(
+        self, namespace, domain, service, kwargs
+    ) -> None:
+        wez = kwargs.get("wez")
+        if wez not in (1, 2):
+            self.log(f"set_wez_mode: wez must be 1 or 2, got {wez!r}", level="ERROR")
+            return
+        mode_str = str(kwargs.get("mode", "")).upper()
+        mode = _WEZ_MODE_NAMES.get(mode_str)
+        if mode is None:
+            self.log(f"set_wez_mode: unknown mode '{mode_str}'", level="ERROR")
+            return
+        try:
+            await self._client.set_wez_mode(int(wez), mode)
+        except Exception as exc:
+            self.log(f"set_wez_mode failed: {exc}", level="ERROR")
 
     async def _svc_refresh(self, namespace, domain, service, kwargs) -> None:
         await self._poll({})

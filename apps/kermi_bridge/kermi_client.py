@@ -64,6 +64,19 @@ _DP = {
     "lifetime_heat_kwh":      "ce268bd3-8262-4926-ae2c-e73075c89167",
     "electricity_heating_kwh": "dbf925c9-f24e-456c-ac49-f7702adeb9d1",
     "electricity_dhw_kwh":    "b94586b8-1a4c-4c4f-b56c-07895cb71a89",
+    # WEZ monitoring (read, level 10)
+    "wez1_status":            "7b61bd2f-3f0c-4cda-85ac-790dd3f521e8",
+    "wez1_operating_hours":   "90437f26-465c-456d-acee-fb5a911794c9",
+    "wez2_status":            "3b981e54-70b3-47be-a611-3efe66b036a3",
+    "wez2_operating_hours":   "23903818-d50d-47f2-b5ae-a0763fec44ca",
+    # WEZ control (read/write, level 10)
+    "wez1_betriebsart":       "baf5cfb8-940c-48cf-8a4f-506a5f78d336",
+    "wez2_betriebsart":       "dfb042d3-8f06-41a2-9ba3-2df0660f5ed2",
+    # WEZ monitoring (read, level 10) — additional sensors
+    "wp_return_temp":         "6ca1372b-894d-4f27-add3-257fff9905c1",
+    "wp_flow_temp_lc":        "6576ccc5-048a-482e-ac0d-ef4dc0de16c4",
+    "cop_heating_live":       "cd908274-744c-45db-8ad2-564a4f81b210",
+    "cop_dhw_live":           "5d8bd3ad-7bf4-41ff-8883-82f0d5bc3548",
     # Control (writable at user level 10)
     "energy_mode_mk1":        "6879e0cf-d7d2-4809-8a72-f82dec836f19",
     "energy_mode_mk2":        "adeda139-96e1-47f6-b3bd-025bb0f40e28",
@@ -75,6 +88,8 @@ _DP = {
     "heating_curve_shift_mk2": "3ea5f70b-d320-4592-8b19-06a8e3d26b53",
     "heating_curve_shift_hk":  "04ba9dab-2dd7-4bc3-9b42-d0a5a8d7c5f9",
 }
+
+_WEZ_TO_BETRIEBSART_DP = {1: "wez1_betriebsart", 2: "wez2_betriebsart"}
 
 _CIRCUIT_TO_MODE_DP = {
     "MK1": "energy_mode_mk1",
@@ -99,6 +114,9 @@ _READ_DATAPOINTS = [
     "lifetime_electricity_kwh", "lifetime_heat_kwh",
     "electricity_heating_kwh", "electricity_dhw_kwh",
     "energy_mode_mk1", "energy_mode_mk2", "energy_mode_hk",
+    "wez1_status", "wez1_operating_hours", "wez1_betriebsart",
+    "wez2_status", "wez2_operating_hours", "wez2_betriebsart",
+    "wp_return_temp", "wp_flow_temp_lc", "cop_heating_live", "cop_dhw_live",
 ]
 
 
@@ -109,6 +127,14 @@ class EnergyMode(IntEnum):
     NORMAL  = 2  # Normal operation (0 K offset)
     COMFORT = 3  # Solar surplus mode (+2 K offset, absorbs more heat)
     CUSTOM  = 4  # User-defined offset (configured on device)
+
+
+class WezMode(IntEnum):
+    """Betriebsart for an external heat generator (WEZ)."""
+    AUTO      = 0  # Heat pump decides automatically
+    HP_ONLY   = 1  # Heat pump only — WEZ blocked
+    BOTH      = 2  # HP + WEZ both permitted (parallel bivalent)
+    SECONDARY = 3  # WEZ as backup when HP is insufficient
 
 
 @dataclass
@@ -143,6 +169,18 @@ class KermiSensors:
     energy_mode_mk1: EnergyMode | None = None
     energy_mode_mk2: EnergyMode | None = None
     energy_mode_hk: EnergyMode | None = None
+    # WEZ (external heat generators)
+    wez1_status: int | None = None
+    wez1_operating_hours: float | None = None
+    wez1_betriebsart: WezMode | None = None
+    wez2_status: int | None = None
+    wez2_operating_hours: float | None = None
+    wez2_betriebsart: WezMode | None = None
+    # WEZ additional monitoring (heat pump sensors)
+    wp_return_temp: float | None = None
+    wp_flow_temp_lc: float | None = None
+    cop_heating_live: float | None = None
+    cop_dhw_live: float | None = None
     # Metadata
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -279,6 +317,34 @@ class KermiClient:
                 f"({(data.get('ExceptionData') or {}).get('ErrorCode')})"
             )
         _LOGGER.debug("Kermi: EnergyMode set to %s for circuits %s", mode.name, circuits)
+
+    async def set_wez_mode(self, wez: int, mode: WezMode) -> None:
+        """Set the Betriebsart (operating mode) for WEZ 1 or WEZ 2.
+
+        Args:
+            wez: WEZ unit number; must be 1 or 2.
+            mode: The desired :class:`WezMode`.
+        """
+        await self._ensure_connected()
+        if wez not in _WEZ_TO_BETRIEBSART_DP:
+            raise ValueError(f"Unknown WEZ unit: {wez}. Valid: 1, 2")
+        payload = {
+            "DatapointValues": [
+                {
+                    "$type": _TYPE_INT,
+                    "DatapointConfigId": _DP[_WEZ_TO_BETRIEBSART_DP[wez]],
+                    "DeviceId": self._device_id,
+                    "Value": int(mode),
+                }
+            ]
+        }
+        data = await self._post("Datapoint/WriteValues", payload)
+        if data.get("StatusCode", 1) != 0:
+            raise KermiWriteError(
+                f"WriteValues failed: {data.get('DisplayText')} "
+                f"({(data.get('ExceptionData') or {}).get('ErrorCode')})"
+            )
+        _LOGGER.debug("Kermi: WEZ%d Betriebsart set to %s", wez, mode.name)
 
     async def set_dhw_setpoint(self, temp: float) -> None:
         """Set the domestic hot water setpoint temperature.
@@ -480,6 +546,13 @@ class KermiClient:
             except ValueError:
                 return None
 
+        def _wez_mode(name: str) -> WezMode | None:
+            v = _int(name)
+            try:
+                return WezMode(v) if v is not None else None
+            except ValueError:
+                return None
+
         return KermiSensors(
             outside_temp=_float("outside_temp"),
             outside_temp_avg=_float("outside_temp_avg"),
@@ -504,4 +577,14 @@ class KermiClient:
             energy_mode_mk1=_mode("energy_mode_mk1"),
             energy_mode_mk2=_mode("energy_mode_mk2"),
             energy_mode_hk=_mode("energy_mode_hk"),
+            wez1_status=_int("wez1_status"),
+            wez1_operating_hours=_float("wez1_operating_hours"),
+            wez1_betriebsart=_wez_mode("wez1_betriebsart"),
+            wez2_status=_int("wez2_status"),
+            wez2_operating_hours=_float("wez2_operating_hours"),
+            wez2_betriebsart=_wez_mode("wez2_betriebsart"),
+            wp_return_temp=_float("wp_return_temp"),
+            wp_flow_temp_lc=_float("wp_flow_temp_lc"),
+            cop_heating_live=_float("cop_heating_live"),
+            cop_dhw_live=_float("cop_dhw_live"),
         )

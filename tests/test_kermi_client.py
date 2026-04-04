@@ -16,11 +16,13 @@ from kermi_bridge.kermi_client import (
     KermiConnectionError,
     KermiSensors,
     KermiWriteError,
+    WezMode,
     _CIRCUIT_TO_CURVE_DP,
     _DP,
     _TYPE_BOOL,
     _TYPE_FLOAT,
     _TYPE_INT,
+    _WEZ_TO_BETRIEBSART_DP,
 )
 
 # ── Fixtures & helpers ────────────────────────────────────────────────────────
@@ -628,3 +630,179 @@ class TestSetHeatingCurveShift:
         client, _ = self._make_client(_make_write_response(1, "error"))
         with pytest.raises(KermiWriteError):
             await client.set_heating_curve_shift(1)
+
+
+# ── WezMode enum ──────────────────────────────────────────────────────────────
+
+class TestWezModeEnum:
+    def test_values(self):
+        assert WezMode.AUTO      == 0
+        assert WezMode.HP_ONLY   == 1
+        assert WezMode.BOTH      == 2
+        assert WezMode.SECONDARY == 3
+
+    def test_roundtrip_from_int(self):
+        assert WezMode(2) == WezMode.BOTH
+
+    def test_invalid_value_raises(self):
+        with pytest.raises(ValueError):
+            WezMode(99)
+
+
+# ── WEZ field parsing ─────────────────────────────────────────────────────────
+
+class TestReadSensorsWez:
+    @pytest.mark.asyncio
+    async def test_returns_wez_sensor_values(self):
+        read_body = _make_read_response({
+            "outside_temp": 5.0,
+            "wez1_status": 1,
+            "wez1_operating_hours": 786.5,
+            "wez1_betriebsart": 0,
+            "wez2_status": 0,
+            "wez2_operating_hours": 0.0,
+            "wez2_betriebsart": 2,
+        })
+        session = _FakeSession(post=[_mock_response(read_body)])
+        client = _client_with_session(session, device_id=DEVICE_ID)
+        client._connected = True
+
+        sensors = await client.read_sensors()
+
+        assert sensors.wez1_status == 1
+        assert sensors.wez1_operating_hours == pytest.approx(786.5)
+        assert sensors.wez1_betriebsart == WezMode.AUTO
+        assert sensors.wez2_status == 0
+        assert sensors.wez2_operating_hours == pytest.approx(0.0)
+        assert sensors.wez2_betriebsart == WezMode.BOTH
+
+    @pytest.mark.asyncio
+    async def test_wez_fields_none_when_absent(self):
+        read_body = _make_read_response({"outside_temp": 5.0})
+        session = _FakeSession(post=[_mock_response(read_body)])
+        client = _client_with_session(session, device_id=DEVICE_ID)
+        client._connected = True
+
+        sensors = await client.read_sensors()
+
+        assert sensors.wez1_status is None
+        assert sensors.wez1_operating_hours is None
+        assert sensors.wez1_betriebsart is None
+        assert sensors.wez2_status is None
+        assert sensors.wez2_betriebsart is None
+
+    @pytest.mark.asyncio
+    async def test_wez_betriebsart_unknown_value_yields_none(self):
+        """An out-of-range Betriebsart int must not raise — returns None."""
+        read_body = _make_read_response({"wez1_betriebsart": 99})
+        session = _FakeSession(post=[_mock_response(read_body)])
+        client = _client_with_session(session, device_id=DEVICE_ID)
+        client._connected = True
+
+        sensors = await client.read_sensors()
+
+        assert sensors.wez1_betriebsart is None
+
+
+# ── New monitoring sensors (WP return temp, flow LC, COP live) ────────────────
+
+class TestReadSensorsNewFields:
+    @pytest.mark.asyncio
+    async def test_returns_new_sensor_values(self):
+        """New sensors: wp_return_temp, wp_flow_temp_lc, cop_heating_live, cop_dhw_live."""
+        read_body = _make_read_response({
+            "wp_return_temp": 38.5,
+            "wp_flow_temp_lc": 42.1,
+            "cop_heating_live": 3.8,
+            "cop_dhw_live": 2.9,
+        })
+        session = _FakeSession(post=[_mock_response(read_body)])
+        client = _client_with_session(session, device_id=DEVICE_ID)
+        client._connected = True
+
+        sensors = await client.read_sensors()
+
+        assert sensors.wp_return_temp == pytest.approx(38.5)
+        assert sensors.wp_flow_temp_lc == pytest.approx(42.1)
+        assert sensors.cop_heating_live == pytest.approx(3.8)
+        assert sensors.cop_dhw_live == pytest.approx(2.9)
+
+    @pytest.mark.asyncio
+    async def test_new_fields_none_when_absent(self):
+        """New fields are None when not in response."""
+        read_body = _make_read_response({"outside_temp": 5.0})
+        session = _FakeSession(post=[_mock_response(read_body)])
+        client = _client_with_session(session, device_id=DEVICE_ID)
+        client._connected = True
+
+        sensors = await client.read_sensors()
+
+        assert sensors.wp_return_temp is None
+        assert sensors.wp_flow_temp_lc is None
+        assert sensors.cop_heating_live is None
+        assert sensors.cop_dhw_live is None
+
+    @pytest.mark.asyncio
+    async def test_cop_zero_is_valid_not_none(self):
+        """COP value of 0.0 is valid (not suppressed to None)."""
+        read_body = _make_read_response({
+            "cop_heating_live": 0.0,
+            "cop_dhw_live": 0.0,
+        })
+        session = _FakeSession(post=[_mock_response(read_body)])
+        client = _client_with_session(session, device_id=DEVICE_ID)
+        client._connected = True
+
+        sensors = await client.read_sensors()
+
+        assert sensors.cop_heating_live == 0.0
+        assert sensors.cop_dhw_live == 0.0
+
+
+# ── set_wez_mode ──────────────────────────────────────────────────────────────
+
+class TestSetWezMode:
+    def _make_client(self, write_body: dict) -> tuple[KermiClient, MagicMock]:
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=_mock_response(write_body).__aenter__.return_value)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        session = MagicMock()
+        session.closed = False
+        session.post = MagicMock(return_value=cm)
+        client = _client_with_session(session, device_id=DEVICE_ID)
+        client._connected = True
+        return client, session
+
+    @pytest.mark.asyncio
+    async def test_set_wez1_mode_correct_payload(self):
+        client, session = self._make_client(_make_write_response(0))
+        await client.set_wez_mode(1, WezMode.BOTH)
+
+        payload = session.post.call_args.kwargs.get("json") or session.post.call_args.args[1]
+        dp_values = payload["DatapointValues"]
+        assert len(dp_values) == 1
+        assert dp_values[0]["$type"] == _TYPE_INT
+        assert dp_values[0]["DatapointConfigId"] == _DP["wez1_betriebsart"]
+        assert dp_values[0]["Value"] == int(WezMode.BOTH)
+
+    @pytest.mark.asyncio
+    async def test_set_wez2_mode_correct_guid(self):
+        client, session = self._make_client(_make_write_response(0))
+        await client.set_wez_mode(2, WezMode.SECONDARY)
+
+        payload = session.post.call_args.kwargs.get("json") or session.post.call_args.args[1]
+        assert payload["DatapointValues"][0]["DatapointConfigId"] == _DP["wez2_betriebsart"]
+        assert payload["DatapointValues"][0]["Value"] == int(WezMode.SECONDARY)
+
+    @pytest.mark.asyncio
+    async def test_invalid_wez_unit_raises_value_error(self):
+        client = KermiClient("192.168.1.121", "pass", device_id=DEVICE_ID)
+        client._connected = True
+        with pytest.raises(ValueError, match="Unknown WEZ unit"):
+            await client.set_wez_mode(3, WezMode.AUTO)
+
+    @pytest.mark.asyncio
+    async def test_raises_on_write_failure(self):
+        client, _ = self._make_client(_make_write_response(1, "Schreiben nicht erlaubt."))
+        with pytest.raises(KermiWriteError, match="WriteValues failed"):
+            await client.set_wez_mode(1, WezMode.AUTO)

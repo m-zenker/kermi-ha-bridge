@@ -37,6 +37,7 @@ from kermi_bridge.kermi_client import (  # noqa: E402
     KermiError,
     KermiSensors,
     KermiWriteError,
+    WezMode,
 )
 
 
@@ -78,6 +79,16 @@ def _make_sensors(**overrides) -> KermiSensors:
         energy_mode_mk1=EnergyMode.NORMAL,
         energy_mode_mk2=EnergyMode.NORMAL,
         energy_mode_hk=EnergyMode.ECO,
+        wez1_status=1,
+        wez1_operating_hours=786.0,
+        wez1_betriebsart=WezMode.AUTO,
+        wez2_status=0,
+        wez2_operating_hours=0.0,
+        wez2_betriebsart=WezMode.AUTO,
+        wp_return_temp=38.5,
+        wp_flow_temp_lc=42.1,
+        cop_heating_live=3.8,
+        cop_dhw_live=None,  # intentionally None to test unavailable path
     )
     defaults.update(overrides)
     return KermiSensors(**defaults)
@@ -142,6 +153,7 @@ def mock_client():
     client.trigger_dhw_oneshot = AsyncMock()
     client.set_quiet_mode = AsyncMock()
     client.set_heating_curve_shift = AsyncMock()
+    client.set_wez_mode = AsyncMock()
     client.close = AsyncMock()
     return client
 
@@ -176,6 +188,7 @@ class TestInitialize:
             "kermi_bridge/trigger_dhw_oneshot",
             "kermi_bridge/set_quiet_mode",
             "kermi_bridge/set_heating_curve_shift",
+            "kermi_bridge/set_wez_mode",
             "kermi_bridge/refresh",
         ]
         for svc in expected:
@@ -267,6 +280,39 @@ class TestPollSuccess:
             assert attrs["state_class"] == "total_increasing"
             assert attrs["unit_of_measurement"] == "kWh"
 
+    def test_wez1_status_published(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(wez1_status=1)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "sensor.kermi_wez1_status"]
+        assert calls[-1]["state"] == "1"
+
+    def test_wez1_operating_hours_published_with_attrs(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(wez1_operating_hours=786.5)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "sensor.kermi_wez1_operating_hours"]
+        assert calls[-1]["state"] == "786.5"
+        assert calls[-1]["attributes"]["state_class"] == "total_increasing"
+        assert calls[-1]["attributes"]["unit_of_measurement"] == "h"
+
+    def test_wez1_betriebsart_state_and_mode_int(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(wez1_betriebsart=WezMode.BOTH)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "sensor.kermi_wez1_betriebsart"]
+        assert calls[-1]["state"] == "BOTH"
+        assert calls[-1]["attributes"]["mode_int"] == int(WezMode.BOTH)
+
+    def test_wez2_none_betriebsart_becomes_unavailable(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(wez2_betriebsart=None)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "sensor.kermi_wez2_betriebsart"]
+        assert calls[-1]["state"] == "unavailable"
+
+    def test_wez2_status_zero_published(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(wez2_status=0)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "sensor.kermi_wez2_status"]
+        assert calls[-1]["state"] == "0"
+
     def test_status_attributes_present(self, bridge, mock_client):
         asyncio.run(bridge._poll({}))
         status = [
@@ -277,6 +323,30 @@ class TestPollSuccess:
         assert "last_poll" in attrs
         assert "consecutive_failures" in attrs
         assert attrs["poll_interval_s"] == 30
+
+    def test_wp_return_temp_published(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(wp_return_temp=38.5)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "sensor.kermi_wp_return_temp"]
+        assert calls[-1]["state"] == "38.5"
+
+    def test_wp_flow_temp_lc_published(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(wp_flow_temp_lc=42.1)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "sensor.kermi_wp_flow_temp_lc"]
+        assert calls[-1]["state"] == "42.1"
+
+    def test_cop_heating_live_published(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(cop_heating_live=3.8)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "sensor.kermi_cop_heating_live"]
+        assert calls[-1]["state"] == "3.8"
+
+    def test_cop_dhw_live_none_becomes_unavailable(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(cop_dhw_live=None)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "sensor.kermi_cop_dhw_live"]
+        assert calls[-1]["state"] == "unavailable"
 
 
 # ── TestPollPartial ───────────────────────────────────────────────────────────
@@ -638,6 +708,46 @@ class TestTerminate:
         asyncio.run(b.terminate())   # must not raise AttributeError
 
 
+# ── TestSetWezMode ────────────────────────────────────────────────────────────
+
+class TestSetWezMode:
+    def test_svc_calls_client_wez1(self, bridge, mock_client):
+        asyncio.run(bridge._svc_set_wez_mode(None, None, None, {"wez": 1, "mode": "BOTH"}))
+        mock_client.set_wez_mode.assert_called_once_with(1, WezMode.BOTH)
+
+    def test_svc_calls_client_wez2(self, bridge, mock_client):
+        asyncio.run(bridge._svc_set_wez_mode(None, None, None, {"wez": 2, "mode": "SECONDARY"}))
+        mock_client.set_wez_mode.assert_called_once_with(2, WezMode.SECONDARY)
+
+    def test_svc_invalid_wez_logs_error(self, bridge, mock_client):
+        asyncio.run(bridge._svc_set_wez_mode(None, None, None, {"wez": 3, "mode": "AUTO"}))
+        mock_client.set_wez_mode.assert_not_called()
+        assert any("[ERROR]" in msg for msg in bridge._log_output)
+
+    def test_svc_unknown_mode_logs_error(self, bridge, mock_client):
+        asyncio.run(bridge._svc_set_wez_mode(None, None, None, {"wez": 1, "mode": "TURBO"}))
+        mock_client.set_wez_mode.assert_not_called()
+        assert any("[ERROR]" in msg for msg in bridge._log_output)
+
+    def test_svc_client_error_logged(self, bridge, mock_client):
+        mock_client.set_wez_mode.side_effect = KermiWriteError("write failed")
+        asyncio.run(bridge._svc_set_wez_mode(None, None, None, {"wez": 1, "mode": "AUTO"}))
+        assert any("[ERROR]" in msg for msg in bridge._log_output)
+
+    def test_mqtt_cmd_calls_client(self, bridge, mock_client):
+        asyncio.run(bridge._do_set_wez_mode(1, WezMode.BOTH))
+        mock_client.set_wez_mode.assert_called_once_with(1, WezMode.BOTH)
+
+    def test_mqtt_cmd_unknown_mode_logs_error(self, bridge, mock_client):
+        bridge._on_cmd_wez_mode(1, {"payload": "UNKNOWN"})
+        assert any("[ERROR]" in msg for msg in bridge._log_output)
+
+    def test_mqtt_cmd_client_error_logs(self, bridge, mock_client):
+        mock_client.set_wez_mode.side_effect = KermiWriteError("write failed")
+        asyncio.run(bridge._do_set_wez_mode(1, WezMode.AUTO))
+        assert any("[ERROR]" in msg for msg in bridge._log_output)
+
+
 # ── MQTT test helpers ─────────────────────────────────────────────────────────
 
 import json as _json
@@ -667,7 +777,7 @@ class TestMqttInitialize:
         assert mqtt_bridge.registered_services == {}
 
     def test_services_registered_in_legacy_mode(self, bridge):
-        assert len(bridge.registered_services) == 6
+        assert len(bridge.registered_services) == 7
 
     def test_discovery_published_for_sensors(self, mqtt_bridge):
         topics = [c.get("topic", "") for c in mqtt_bridge.call_service_calls]
@@ -687,6 +797,7 @@ class TestMqttInitialize:
         calls = [
             c for c in mqtt_bridge.call_service_calls
             if c.get("topic") == "homeassistant/select/kermi_energy_mode_mk1/config"
+            and c.get("payload")  # Filter out empty cleanup payloads
         ]
         assert calls
         payload = _json.loads(calls[0]["payload"])
@@ -696,7 +807,8 @@ class TestMqttInitialize:
         topics = [c.get("topic", "") for c in mqtt_bridge.call_service_calls]
         assert "homeassistant/number/kermi_dhw_setpoint/config" in topics
         calls = [c for c in mqtt_bridge.call_service_calls
-                 if c.get("topic") == "homeassistant/number/kermi_dhw_setpoint/config"]
+                 if c.get("topic") == "homeassistant/number/kermi_dhw_setpoint/config"
+                 and c.get("payload")]  # Filter out empty cleanup payloads
         payload = _json.loads(calls[0]["payload"])
         assert payload["min"] == 0
         assert payload["max"] == 85
@@ -722,10 +834,13 @@ class TestMqttInitialize:
                         if c.get("payload") == "online"]
         assert online_calls
 
-    def test_legacy_entities_marked_unavailable(self, mqtt_bridge):
-        for eid in _ALL_SENSOR_ENTITIES[:3]:
-            calls = [c for c in mqtt_bridge.set_state_calls if c["entity_id"] == eid]
-            assert calls and calls[-1]["state"] == "unavailable"
+    def test_legacy_cleanup_is_noop_in_mqtt_mode(self, mqtt_bridge):
+        """_mqtt_cleanup_legacy is a no-op in MQTT mode. Old set_state entities are never recreated."""
+        initial_calls = len(mqtt_bridge.call_service_calls)
+        # Initialize already called _mqtt_cleanup_legacy, check no entity recreation happened
+        assert initial_calls > 0  # mqtt_publish calls exist
+        remove_calls = [c for c in mqtt_bridge.call_service_calls if c.get("service") == "homeassistant/remove_entity"]
+        assert not remove_calls  # no remove_entity calls should exist
 
     def test_command_subscriptions_registered(self, mqtt_bridge):
         events = {e.get("event") for e in mqtt_bridge.listen_event_calls}

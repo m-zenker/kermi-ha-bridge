@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
+## [0.9.4] — 2026-04-04
+
+### Fixed
+- `mqtt_mixin.py` — `_mqtt_cleanup_legacy()` no-op during MQTT operation; previously called `set_state(state="unavailable")` which paradoxically **created/resurrected** deleted entities in HA's state machine — now a no-op to prevent non-MQTT sensors from reappearing after user deletion. Root cause: AppDaemon's `set_state()` calls the HA `homeassistant/set` service, which creates missing entities as a side effect.
+- `mqtt_mixin.py` — MQTT discovery unique_id now scoped with device identifier, fixing entity ID generation for all MQTT-discovered entities; previously unscoped unique_ids caused HA to generate incorrect entity IDs without device prefix (e.g. `sensor.kermi_wp_return_temp` instead of `sensor.em_kermi_bridge_kermi_wp_return_temp`), which prevented the 4 new WEZ sensors from v0.9.3 from appearing correctly
+
+### Added
+- `kermi_bridge.py` — automatic cleanup of legacy unscoped MQTT entities on startup; publishes empty payloads to MQTT discovery topics, triggering complete removal from HA entity registry instead of leaving orphaned unavailable entities
+
 ## [0.8.1] — 2026-03-26
 
 ### Fixed

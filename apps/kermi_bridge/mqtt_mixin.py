@@ -76,9 +76,12 @@ class MQTTMixin:
         sc: str | None,
         json_attrs_topic: str | None = None,
     ) -> None:
+        # Scope unique_id and object_id to device context to avoid collisions
+        scoped_uid = f"{self._mqtt_device['identifiers'][0]}_{uid}"
         payload: dict = {
             "name": name,
-            "unique_id": uid,
+            "unique_id": scoped_uid,
+            "object_id": scoped_uid,
             "state_topic": self._state_topic(uid),
             "availability_topic": self._mqtt_avail_topic,
             "icon": icon,
@@ -97,9 +100,11 @@ class MQTTMixin:
     def _mqtt_publish_binary_sensor_discovery(
         self, uid: str, name: str, icon: str, dc: str | None
     ) -> None:
+        scoped_uid = f"{self._mqtt_device['identifiers'][0]}_{uid}"
         payload: dict = {
             "name": name,
-            "unique_id": uid,
+            "unique_id": scoped_uid,
+            "object_id": scoped_uid,
             "state_topic": self._state_topic(uid),
             "availability_topic": self._mqtt_avail_topic,
             "payload_on": "ON",
@@ -112,9 +117,11 @@ class MQTTMixin:
         self._mqtt_publish(self._discovery_topic("binary_sensor", uid), json.dumps(payload))
 
     def _mqtt_publish_button_discovery(self, uid: str, name: str, icon: str) -> None:
+        scoped_uid = f"{self._mqtt_device['identifiers'][0]}_{uid}"
         payload: dict = {
             "name": name,
-            "unique_id": uid,
+            "unique_id": scoped_uid,
+            "object_id": scoped_uid,
             "command_topic": self._cmd_topic("button", uid),
             "availability_topic": self._mqtt_avail_topic,
             "payload_press": "PRESS",
@@ -134,9 +141,11 @@ class MQTTMixin:
         icon: str,
         mode: str = "box",
     ) -> None:
+        scoped_uid = f"{self._mqtt_device['identifiers'][0]}_{uid}"
         payload: dict = {
             "name": name,
-            "unique_id": uid,
+            "unique_id": scoped_uid,
+            "object_id": scoped_uid,
             "command_topic": self._cmd_topic("number", uid),
             "state_topic": self._state_topic(uid),
             "availability_topic": self._mqtt_avail_topic,
@@ -153,9 +162,11 @@ class MQTTMixin:
     def _mqtt_publish_select_discovery(
         self, uid: str, name: str, options: list[str], icon: str
     ) -> None:
+        scoped_uid = f"{self._mqtt_device['identifiers'][0]}_{uid}"
         payload: dict = {
             "name": name,
-            "unique_id": uid,
+            "unique_id": scoped_uid,
+            "object_id": scoped_uid,
             "command_topic": self._cmd_topic("select", uid),
             "state_topic": self._state_topic(uid),
             "availability_topic": self._mqtt_avail_topic,
@@ -166,9 +177,11 @@ class MQTTMixin:
         self._mqtt_publish(self._discovery_topic("select", uid), json.dumps(payload))
 
     def _mqtt_publish_switch_discovery(self, uid: str, name: str, icon: str) -> None:
+        scoped_uid = f"{self._mqtt_device['identifiers'][0]}_{uid}"
         payload: dict = {
             "name": name,
-            "unique_id": uid,
+            "unique_id": scoped_uid,
+            "object_id": scoped_uid,
             "command_topic": self._cmd_topic("switch", uid),
             "state_topic": self._state_topic(uid),
             "availability_topic": self._mqtt_avail_topic,
@@ -216,9 +229,11 @@ class MQTTMixin:
     # ── Legacy cleanup ──────────────────────────────────────────────────────────
 
     def _mqtt_cleanup_legacy(self, entity_ids: list[str]) -> None:
-        """Mark old set_state-managed entities unavailable during MQTT migration."""
-        for eid in entity_ids:
-            try:
-                self.set_state(eid, state="unavailable")
-            except Exception as exc:
-                self.log(f"Legacy cleanup failed for {eid}: {exc}", level="WARNING")
+        """No-op during MQTT migration.
+
+        Previously this marked old set_state entities as unavailable, but set_state()
+        paradoxically creates/resurrects entities in HA even when setting state="unavailable".
+        Since we're using MQTT discovery, these old set_state entities should not be
+        recreated at all. Don't call this method when MQTT is enabled.
+        """
+        pass
