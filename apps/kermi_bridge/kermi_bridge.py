@@ -182,13 +182,10 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
         self._mqtt_setup(self.args, "kermi_bridge", _KERMI_DEVICE)
         if self._mqtt_enabled:
-            self._cleanup_unscoped_mqtt_entities()
+            self._cleanup_old_mqtt_discovery()
             self._publish_mqtt_discovery()
             self._subscribe_mqtt_commands()
             self._mqtt_publish_availability("online")
-            self._mqtt_cleanup_legacy(
-                _ALL_SENSOR_ENTITIES + ["sensor.kermi_bridge_status"]
-            )
         else:
             self._register_services()
 
@@ -198,50 +195,35 @@ class KermiBridge(MQTTMixin, hass.Hass):
             level="INFO",
         )
 
-    def _cleanup_unscoped_mqtt_entities(self) -> None:
-        """Remove old MQTT-discovered entities from HA registry (before unique_id scoping fix).
-
-        Before the fix, MQTT discovery published sensors with unscoped unique_ids
-        (e.g., "kermi_outside_temp"). After the fix, they are scoped
-        (e.g., "em_kermi_bridge_kermi_outside_temp"). This method publishes empty
-        configs to the old discovery topics, telling HA's MQTT discovery to delete them.
-        """
-        # Old sensor UIDs (from unscoped MQTT discovery)
-        old_sensor_uids = [uid for uid, *_ in _SENSOR_DISCOVERY] + ["kermi_bridge_status"]
-        for uid in old_sensor_uids:
-            topic = self._discovery_topic("sensor", uid)
-            self._mqtt_publish(topic, "", retain=True)
-
-        # Old binary sensor
-        topic = self._discovery_topic("binary_sensor", "kermi_evu_lock")
-        self._mqtt_publish(topic, "", retain=True)
-
-        # Old select entities (energy modes, WEZ Betriebsart)
+    def _cleanup_old_mqtt_discovery(self) -> None:
+        """Clear all retained MQTT discovery messages from all historical topic formats."""
+        d = self._mqtt_device['identifiers'][0]
+        specs = []
+        # Sensors
+        for uid in [uid for uid, *_ in _SENSOR_DISCOVERY] + ["kermi_bridge_status"]:
+            specs += [("sensor", uid), ("sensor", f"{d}_{uid}")]
+        # Binary sensor
+        specs += [("binary_sensor", "kermi_evu_lock"), ("binary_sensor", f"{d}_kermi_evu_lock")]
+        # Select: energy modes per circuit
         for circuit in ["mk1", "mk2", "hk"]:
-            topic = self._discovery_topic("select", f"kermi_energy_mode_{circuit}")
-            self._mqtt_publish(topic, "", retain=True)
-
+            uid = f"kermi_energy_mode_{circuit}"
+            specs += [("select", uid), ("select", f"{d}_{uid}")]
+        # Select: WEZ Betriebsart
         for wez_n in [1, 2]:
-            topic = self._discovery_topic("select", f"kermi_wez{wez_n}_betriebsart")
-            self._mqtt_publish(topic, "", retain=True)
-
-        # Old number entities (DHW setpoint, heating curve shifts)
-        topic = self._discovery_topic("number", "kermi_dhw_setpoint")
-        self._mqtt_publish(topic, "", retain=True)
-
+            uid = f"kermi_wez{wez_n}_betriebsart"
+            specs += [("select", uid), ("select", f"{d}_{uid}")]
+        # Number: DHW setpoint
+        specs += [("number", "kermi_dhw_setpoint"), ("number", f"{d}_kermi_dhw_setpoint")]
+        # Number: per-circuit heating curve shifts
         for circuit in self._circuits:
-            topic = self._discovery_topic("number", f"kermi_heating_curve_shift_{circuit}")
-            self._mqtt_publish(topic, "", retain=True)
-
-        # Old switch entity (quiet mode)
-        topic = self._discovery_topic("switch", "kermi_quiet_mode")
-        self._mqtt_publish(topic, "", retain=True)
-
-        # Old button entities
-        for button_uid in ["kermi_dhw_oneshot", "kermi_refresh"]:
-            topic = self._discovery_topic("button", button_uid)
-            self._mqtt_publish(topic, "", retain=True)
-
+            uid = f"kermi_heating_curve_shift_{circuit}"
+            specs += [("number", uid), ("number", f"{d}_{uid}")]
+        # Switch: quiet mode
+        specs += [("switch", "kermi_quiet_mode"), ("switch", f"{d}_kermi_quiet_mode")]
+        # Buttons
+        for uid in ["kermi_dhw_oneshot", "kermi_refresh"]:
+            specs += [("button", uid), ("button", f"{d}_{uid}")]
+        self._mqtt_clear_discovery_topics(specs)
         self.log("Removed old unscoped MQTT entities from HA registry", level="INFO")
 
     def _publish_mqtt_discovery(self) -> None:

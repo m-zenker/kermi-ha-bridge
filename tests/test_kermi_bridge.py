@@ -781,22 +781,22 @@ class TestMqttInitialize:
 
     def test_discovery_published_for_sensors(self, mqtt_bridge):
         topics = [c.get("topic", "") for c in mqtt_bridge.call_service_calls]
-        sensor_cfgs = [t for t in topics if t.startswith("homeassistant/sensor/kermi_")]
+        sensor_cfgs = [t for t in topics if t.startswith("homeassistant/sensor/em_kermi_bridge_kermi_") and "/config" in t]
         assert len(sensor_cfgs) >= 20, f"Expected ≥20 sensor discovery topics, got {len(sensor_cfgs)}"
 
     def test_discovery_published_for_binary_sensor(self, mqtt_bridge):
         topics = [c.get("topic", "") for c in mqtt_bridge.call_service_calls]
-        assert "homeassistant/binary_sensor/kermi_evu_lock/config" in topics
+        assert "homeassistant/binary_sensor/em_kermi_bridge_kermi_evu_lock/config" in topics
 
     def test_discovery_published_for_energy_mode_selects(self, mqtt_bridge):
         topics = [c.get("topic", "") for c in mqtt_bridge.call_service_calls]
         for circuit in ("mk1", "mk2", "hk"):
-            assert f"homeassistant/select/kermi_energy_mode_{circuit}/config" in topics
+            assert f"homeassistant/select/em_kermi_bridge_kermi_energy_mode_{circuit}/config" in topics
 
     def test_energy_mode_select_has_all_options(self, mqtt_bridge):
         calls = [
             c for c in mqtt_bridge.call_service_calls
-            if c.get("topic") == "homeassistant/select/kermi_energy_mode_mk1/config"
+            if c.get("topic") == "homeassistant/select/em_kermi_bridge_kermi_energy_mode_mk1/config"
             and c.get("payload")  # Filter out empty cleanup payloads
         ]
         assert calls
@@ -805,9 +805,9 @@ class TestMqttInitialize:
 
     def test_dhw_setpoint_number_discovery(self, mqtt_bridge):
         topics = [c.get("topic", "") for c in mqtt_bridge.call_service_calls]
-        assert "homeassistant/number/kermi_dhw_setpoint/config" in topics
+        assert "homeassistant/number/em_kermi_bridge_kermi_dhw_setpoint/config" in topics
         calls = [c for c in mqtt_bridge.call_service_calls
-                 if c.get("topic") == "homeassistant/number/kermi_dhw_setpoint/config"
+                 if c.get("topic") == "homeassistant/number/em_kermi_bridge_kermi_dhw_setpoint/config"
                  and c.get("payload")]  # Filter out empty cleanup payloads
         payload = _json.loads(calls[0]["payload"])
         assert payload["min"] == 0
@@ -816,9 +816,9 @@ class TestMqttInitialize:
     def test_heating_curve_shift_per_circuit(self, mqtt_bridge):
         topics = [c.get("topic", "") for c in mqtt_bridge.call_service_calls]
         # config has circuits: [MK1, MK2]
-        assert "homeassistant/number/kermi_heating_curve_shift_mk1/config" in topics
-        assert "homeassistant/number/kermi_heating_curve_shift_mk2/config" in topics
-        assert "homeassistant/number/kermi_heating_curve_shift_hk/config" not in topics
+        assert "homeassistant/number/em_kermi_bridge_kermi_heating_curve_shift_mk1/config" in topics
+        assert "homeassistant/number/em_kermi_bridge_kermi_heating_curve_shift_mk2/config" in topics
+        assert "homeassistant/number/em_kermi_bridge_kermi_heating_curve_shift_hk/config" not in topics
 
     def test_button_entities_published(self, mqtt_bridge):
         topics = [c.get("topic", "") for c in mqtt_bridge.call_service_calls]
@@ -833,14 +833,6 @@ class TestMqttInitialize:
         online_calls = [c for c in mqtt_bridge.call_service_calls
                         if c.get("payload") == "online"]
         assert online_calls
-
-    def test_legacy_cleanup_is_noop_in_mqtt_mode(self, mqtt_bridge):
-        """_mqtt_cleanup_legacy is a no-op in MQTT mode. Old set_state entities are never recreated."""
-        initial_calls = len(mqtt_bridge.call_service_calls)
-        # Initialize already called _mqtt_cleanup_legacy, check no entity recreation happened
-        assert initial_calls > 0  # mqtt_publish calls exist
-        remove_calls = [c for c in mqtt_bridge.call_service_calls if c.get("service") == "homeassistant/remove_entity"]
-        assert not remove_calls  # no remove_entity calls should exist
 
     def test_command_subscriptions_registered(self, mqtt_bridge):
         events = {e.get("event") for e in mqtt_bridge.listen_event_calls}

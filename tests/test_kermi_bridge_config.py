@@ -18,7 +18,7 @@ MINIMAL_CONFIG = {
 }
 
 
-def _write(tmp_path, data: dict):
+def _write(tmp_path: Path, data: dict) -> Path:
     p = tmp_path / "kermi_bridge.yaml"
     p.write_text(yaml.dump(data), encoding="utf-8")
     return p

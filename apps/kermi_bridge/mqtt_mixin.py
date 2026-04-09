@@ -48,7 +48,11 @@ class MQTTMixin:
         return f"{self._mqtt_prefix}/energy_manager/{self._mqtt_slug}/{platform}/{uid}/set"
 
     def _discovery_topic(self, platform: str, uid: str) -> str:
-        return f"{self._mqtt_prefix}/{platform}/{uid}/config"
+        # Scope the topic path to device_id to ensure MQTT doesn't create duplicates when
+        # unique_ids match. This prevents HA from appending _2 when old and new entities
+        # compete for the same entity_id.
+        scoped = f"{self._mqtt_device['identifiers'][0]}_{uid}"
+        return f"{self._mqtt_prefix}/{platform}/{scoped}/config"
 
     # ── Low-level publish ──────────────────────────────────────────────────────
 
@@ -226,14 +230,15 @@ class MQTTMixin:
             namespace=self._mqtt_ns,
         )
 
-    # ── Legacy cleanup ──────────────────────────────────────────────────────────
+    # ── Cleanup helpers ─────────────────────────────────────────────────────────
 
-    def _mqtt_cleanup_legacy(self, entity_ids: list[str]) -> None:
-        """No-op during MQTT migration.
+    def _mqtt_clear_discovery_topics(self, specs: list[tuple[str, str]]) -> None:
+        """Clear retained discovery messages for a list of (platform, node_id) pairs.
 
-        Previously this marked old set_state entities as unavailable, but set_state()
-        paradoxically creates/resurrects entities in HA even when setting state="unavailable".
-        Since we're using MQTT discovery, these old set_state entities should not be
-        recreated at all. Don't call this method when MQTT is enabled.
+        Publishes an empty retained payload to ``{prefix}/{platform}/{node_id}/config``
+        for every entry, which removes the retained message from the broker and
+        causes HA to delete the corresponding entity.
         """
-        pass
+        for platform, node_id in specs:
+            topic = f"{self._mqtt_prefix}/{platform}/{node_id}/config"
+            self._mqtt_publish(topic, "", retain=True)

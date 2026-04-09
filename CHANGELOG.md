@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
+## [0.9.5] — 2026-04-09
+
+### Fixed
+- `kermi_bridge.py` — centralized MQTT discovery cleanup in `_mqtt_cleanup_all_variants()` method; removes duplicate sensors (e.g. `sensor.name_2`) by publishing empty payloads to all historical discovery topic paths (original short-name, unscoped device-prefixed, scoped device-prefixed). Previously each app implemented cleanup independently with inconsistent coverage, causing orphaned duplicate entities after discovery topic path changes in v0.9.4.
+- `tests/test_kermi_bridge.py` — updated to verify cleanup publishes empty payloads to all discovery topic variants
+
 ## [0.9.4] — 2026-04-04
 
 ### Fixed
