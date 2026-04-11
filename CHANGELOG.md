@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
+## [0.9.6] — 2026-04-11
+
+### Documentation
+- `README.md`, `info.md` — clarified HACS installation: explicit prerequisite that AppDaemon 4.x must be installed, and clear warning to select "AppDaemon" (not "Integration") as the category when adding the custom repository (fixes m-zenker/kermi-ha-bridge#3)
+
 ## [0.9.5] — 2026-04-09
 
 ### Fixed

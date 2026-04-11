@@ -26,11 +26,23 @@ AppDaemon app that bridges the **Kermi x-change dynamic** heat pump (x-center In
 
 ### Via HACS (recommended)
 
-1. Add this repo as a custom HACS repository (type: AppDaemon).
-2. Install "Kermi HA Bridge" from HACS.
-3. Copy `apps/kermi_bridge/config.yaml.example` → `/config/appdaemon/apps/kermi_bridge/config.yaml` and edit it.
-4. Add the contents of `apps.yaml` to your AppDaemon `/config/appdaemon/apps/apps.yaml`.
-5. Restart AppDaemon.
+> **Prerequisite:** [AppDaemon 4.x](https://appdaemon.readthedocs.io/) must be installed and running.
+> This is an AppDaemon app — it is **not** a standard Home Assistant integration.
+
+1. In HACS → three-dot menu → **Custom repositories**
+2. Enter the repository URL and set the **Category to "AppDaemon"** — not "Integration" (that will fail with a compliance error)
+3. Click **ADD**, then find and install "Kermi HA Bridge"
+4. Register the app — add to `/config/appdaemon/apps/apps.yaml`:
+
+   ```yaml
+   kermi_bridge:
+     module: kermi_bridge.kermi_bridge
+     class: KermiBridge
+     em_config_path: /config/appdaemon/apps/kermi_bridge/config.yaml
+   ```
+
+5. Copy `apps/kermi_bridge/config.yaml.example` to `/config/appdaemon/apps/kermi_bridge/config.yaml` and fill in your heat pump IP and password
+6. Restart AppDaemon
 
 ### Manual installation
 
