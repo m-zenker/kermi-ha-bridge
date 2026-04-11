@@ -12,9 +12,9 @@ Local API bridge for the **Kermi x-change dynamic** heat pump — full Home Assi
 
 ## Installation
 
-Add this repo as a custom HACS repository (type: AppDaemon), then install from HACS.
+This is an **AppDaemon app** — AppDaemon 4.x must already be installed alongside Home Assistant.
 
-For detailed setup and configuration, see the [full README](https://github.com/martin/kermi-ha-bridge).
+To add via HACS: go to HACS → Custom repositories, paste the repo URL, and set the **Category to "AppDaemon"** (not "Integration" — that will fail). Then install "Kermi HA Bridge" and follow the README to register the app in `apps.yaml` and create the config file.
 
 ## License
 
