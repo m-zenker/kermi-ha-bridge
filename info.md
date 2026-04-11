@@ -1,6 +1,6 @@
 # Kermi HA Bridge
 
-![Version](https://img.shields.io/badge/version-v0.8.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-142%20passing-brightgreen) ![AppDaemon](https://img.shields.io/badge/AppDaemon-4.x-orange)
+![Version](https://img.shields.io/badge/version-v0.9.6-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-142%20passing-brightgreen) ![AppDaemon](https://img.shields.io/badge/AppDaemon-4.x-orange)
 
 Local API bridge for the **Kermi x-change dynamic** heat pump — full Home Assistant control, no cloud, no Modbus. Publishes 20+ sensor entities and provides six control services to manage heating circuits, DHW setpoint, heating curve, and energy modes.
 
