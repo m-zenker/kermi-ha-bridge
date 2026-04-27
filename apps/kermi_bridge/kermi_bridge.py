@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 import appdaemon.plugins.hass.hassapi as hass
@@ -171,6 +172,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
         self._circuits: list[str] = kb["circuits"]
         self._consecutive_failures: int = 0
         self._polling_active: bool = True
+        self._last_cmd_ts: dict[str, float] = {}
 
         self._client = KermiClient(
             host=kb["host"],
@@ -178,8 +180,6 @@ class KermiBridge(MQTTMixin, hass.Hass):
             device_id=kb.get("device_id"),
             timeout=kb["timeout_s"],
         )
-        self._loop = asyncio.get_event_loop()
-
         self._mqtt_setup(self.args, "kermi_bridge", _KERMI_DEVICE)
         if self._mqtt_enabled:
             self._cleanup_old_mqtt_discovery()
@@ -199,30 +199,30 @@ class KermiBridge(MQTTMixin, hass.Hass):
         """Clear all retained MQTT discovery messages from all historical topic formats."""
         d = self._mqtt_device['identifiers'][0]
         specs = []
-        # Sensors
+        # Sensors (only old unscoped format — scoped format is current and must not be cleared)
         for uid in [uid for uid, *_ in _SENSOR_DISCOVERY] + ["kermi_bridge_status"]:
-            specs += [("sensor", uid), ("sensor", f"{d}_{uid}")]
+            specs += [("sensor", uid)]
         # Binary sensor
-        specs += [("binary_sensor", "kermi_evu_lock"), ("binary_sensor", f"{d}_kermi_evu_lock")]
+        specs += [("binary_sensor", "kermi_evu_lock")]
         # Select: energy modes per circuit
         for circuit in ["mk1", "mk2", "hk"]:
             uid = f"kermi_energy_mode_{circuit}"
-            specs += [("select", uid), ("select", f"{d}_{uid}")]
+            specs += [("select", uid)]
         # Select: WEZ Betriebsart
         for wez_n in [1, 2]:
             uid = f"kermi_wez{wez_n}_betriebsart"
-            specs += [("select", uid), ("select", f"{d}_{uid}")]
+            specs += [("select", uid)]
         # Number: DHW setpoint
-        specs += [("number", "kermi_dhw_setpoint"), ("number", f"{d}_kermi_dhw_setpoint")]
+        specs += [("number", "kermi_dhw_setpoint")]
         # Number: per-circuit heating curve shifts
         for circuit in self._circuits:
             uid = f"kermi_heating_curve_shift_{circuit}"
-            specs += [("number", uid), ("number", f"{d}_{uid}")]
+            specs += [("number", uid)]
         # Switch: quiet mode
-        specs += [("switch", "kermi_quiet_mode"), ("switch", f"{d}_kermi_quiet_mode")]
+        specs += [("switch", "kermi_quiet_mode")]
         # Buttons
         for uid in ["kermi_dhw_oneshot", "kermi_refresh"]:
-            specs += [("button", uid), ("button", f"{d}_{uid}")]
+            specs += [("button", uid)]
         self._mqtt_clear_discovery_topics(specs)
         self.log("Removed old unscoped MQTT entities from HA registry", level="INFO")
 
@@ -576,13 +576,24 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
     # ── MQTT command handlers ──────────────────────────────────────────────────
 
+    def _cmd_allowed(self, key: str, cooldown_s: float = 5.0) -> bool:
+        """Return True if enough time has passed since the same command was last sent."""
+        now = time.monotonic()
+        if now - self._last_cmd_ts.get(key, 0.0) < cooldown_s:
+            self.log(f"Command rate-limited (cooldown {cooldown_s}s): {key}", level="DEBUG")
+            return False
+        self._last_cmd_ts[key] = now
+        return True
+
     def _on_cmd_energy_mode(self, circuit: str, data: dict) -> None:
         payload = str(data.get("payload", "")).upper()
         mode = _ENERGY_MODE_NAMES.get(payload)
         if mode is None:
             self.log(f"set_energy_mode via MQTT: unknown mode '{payload}'", level="ERROR")
             return
-        asyncio.run_coroutine_threadsafe(self._do_set_energy_mode(mode, [circuit.upper()]), self._loop)
+        if not self._cmd_allowed(f"energy_mode_{circuit}:{payload}"):
+            return
+        asyncio.run_coroutine_threadsafe(self._do_set_energy_mode(mode, [circuit.upper()]), asyncio.get_event_loop())
 
     async def _do_set_energy_mode(self, mode: EnergyMode, circuits: list[str]) -> None:
         try:
@@ -596,7 +607,9 @@ class KermiBridge(MQTTMixin, hass.Hass):
         if mode is None:
             self.log(f"set_wez_mode via MQTT: unknown mode '{payload}'", level="ERROR")
             return
-        asyncio.run_coroutine_threadsafe(self._do_set_wez_mode(wez, mode), self._loop)
+        if not self._cmd_allowed(f"wez_mode_{wez}:{payload}"):
+            return
+        asyncio.run_coroutine_threadsafe(self._do_set_wez_mode(wez, mode), asyncio.get_event_loop())
 
     async def _do_set_wez_mode(self, wez: int, mode: WezMode) -> None:
         try:
@@ -614,7 +627,9 @@ class KermiBridge(MQTTMixin, hass.Hass):
         if not (0 <= temp <= 85):
             self.log(f"set_dhw_setpoint: {temp} out of range [0–85]", level="ERROR")
             return
-        asyncio.run_coroutine_threadsafe(self._do_set_dhw_setpoint(temp), self._loop)
+        if not self._cmd_allowed(f"dhw_setpoint:{temp}"):
+            return
+        asyncio.run_coroutine_threadsafe(self._do_set_dhw_setpoint(temp), asyncio.get_event_loop())
 
     async def _do_set_dhw_setpoint(self, temp: float) -> None:
         try:
@@ -625,7 +640,9 @@ class KermiBridge(MQTTMixin, hass.Hass):
             self.log(f"set_dhw_setpoint failed: {exc}", level="ERROR")
 
     def _on_cmd_dhw_oneshot(self, data: dict) -> None:
-        asyncio.run_coroutine_threadsafe(self._do_trigger_dhw_oneshot(), self._loop)
+        if not self._cmd_allowed("dhw_oneshot"):
+            return
+        asyncio.run_coroutine_threadsafe(self._do_trigger_dhw_oneshot(), asyncio.get_event_loop())
 
     async def _do_trigger_dhw_oneshot(self) -> None:
         try:
@@ -635,8 +652,10 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
     def _on_cmd_quiet_mode(self, data: dict) -> None:
         payload = str(data.get("payload", "")).upper()
+        if not self._cmd_allowed(f"quiet_mode:{payload}"):
+            return
         enabled = payload == "ON"
-        asyncio.run_coroutine_threadsafe(self._do_set_quiet_mode(enabled), self._loop)
+        asyncio.run_coroutine_threadsafe(self._do_set_quiet_mode(enabled), asyncio.get_event_loop())
 
     async def _do_set_quiet_mode(self, enabled: bool) -> None:
         try:
@@ -648,6 +667,8 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
     def _on_cmd_heating_curve_shift(self, circuit: str, data: dict) -> None:
         payload = data.get("payload", "")
+        if not self._cmd_allowed(f"heating_curve_shift_{circuit}:{payload}"):
+            return
         try:
             shift = int(payload)
         except (TypeError, ValueError):
@@ -660,7 +681,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
                 f"set_heating_curve_shift: {shift} out of range [-5, 5]", level="ERROR"
             )
             return
-        asyncio.run_coroutine_threadsafe(self._do_set_heating_curve_shift(shift, circuit), self._loop)
+        asyncio.run_coroutine_threadsafe(self._do_set_heating_curve_shift(shift, circuit), asyncio.get_event_loop())
 
     async def _do_set_heating_curve_shift(self, shift: int, circuit: str) -> None:
         try:
@@ -672,7 +693,9 @@ class KermiBridge(MQTTMixin, hass.Hass):
             self.log(f"set_heating_curve_shift failed: {exc}", level="ERROR")
 
     def _on_cmd_refresh(self, data: dict) -> None:
-        asyncio.run_coroutine_threadsafe(self._poll({}), self._loop)
+        if not self._cmd_allowed("refresh", cooldown_s=10.0):
+            return
+        asyncio.run_coroutine_threadsafe(self._poll({}), asyncio.get_event_loop())
 
     # ── Legacy service handlers ────────────────────────────────────────────────
 

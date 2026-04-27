@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
+## [0.10.0] — 2026-04-27
+
+### Fixed
+- `apps/kermi_bridge/kermi_bridge.py` — asyncio event loop now resolved at command-handler call time instead of during `initialize()`; prevents stale-loop errors after AppDaemon hot-reload
+- `apps/kermi_bridge/kermi_bridge.py` — MQTT command rate limiting added: 5 s cooldown per `(handler, payload)` pair, 10 s for refresh; duplicate commands within the window are dropped with a DEBUG log
+
+### Added
+- `tests/test_kermi_bridge.py` — 6 new rate-limiting tests covering `_cmd_allowed()` helper and end-to-end handler deduplication
+
 ## [0.9.6] — 2026-04-11
 
 ### Documentation

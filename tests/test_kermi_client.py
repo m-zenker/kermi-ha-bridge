@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 import pytest
 
-from kermi_bridge.kermi_client import (
+from apps.kermi_bridge.kermi_client import (
     EnergyMode,
     KermiAuthError,
     KermiClient,

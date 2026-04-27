@@ -955,3 +955,43 @@ class TestMqttCommandHandlers:
     def test_heating_curve_shift_invalid_payload(self, mqtt_bridge, mock_client):
         mqtt_bridge._on_cmd_heating_curve_shift("mk1", {"payload": "x"})
         assert any("[ERROR]" in m for m in mqtt_bridge._log_output)
+
+
+# ── TestCommandRateLimiting ───────────────────────────────────────────────────
+
+class TestCommandRateLimiting:
+    def test_first_cmd_allowed(self, mqtt_bridge):
+        assert mqtt_bridge._cmd_allowed("test_key") is True
+
+    def test_second_cmd_within_cooldown_blocked(self, mqtt_bridge):
+        mqtt_bridge._cmd_allowed("test_key")
+        assert mqtt_bridge._cmd_allowed("test_key") is False
+
+    def test_second_cmd_after_cooldown_allowed(self, mqtt_bridge, monkeypatch):
+        import time
+        t0 = time.monotonic()
+        monkeypatch.setattr(time, "monotonic", lambda: t0)
+        mqtt_bridge._cmd_allowed("test_key")
+        monkeypatch.setattr(time, "monotonic", lambda: t0 + 10.0)
+        assert mqtt_bridge._cmd_allowed("test_key") is True
+
+    def test_different_keys_not_rate_limited_together(self, mqtt_bridge):
+        mqtt_bridge._cmd_allowed("key_a")
+        assert mqtt_bridge._cmd_allowed("key_b") is True
+
+    def test_blocked_cmd_logs_debug(self, mqtt_bridge):
+        mqtt_bridge._cmd_allowed("test_key")
+        mqtt_bridge._cmd_allowed("test_key")
+        assert any("[DEBUG]" in m and "rate-limited" in m for m in mqtt_bridge._log_output)
+
+    def test_rapid_energy_mode_cmd_rate_limited(self, mqtt_bridge, monkeypatch):
+        import asyncio as _asyncio
+        scheduled = []
+        monkeypatch.setattr("kermi_bridge.kermi_bridge.asyncio.get_event_loop", lambda: None)
+        monkeypatch.setattr(
+            "kermi_bridge.kermi_bridge.asyncio.run_coroutine_threadsafe",
+            lambda coro, loop: scheduled.append(coro) or type("F", (), {"result": lambda s: None})(),
+        )
+        mqtt_bridge._on_cmd_energy_mode("mk1", {"payload": "NORMAL"})
+        mqtt_bridge._on_cmd_energy_mode("mk1", {"payload": "NORMAL"})
+        assert len(scheduled) == 1, "Second identical cmd should be rate-limited"
