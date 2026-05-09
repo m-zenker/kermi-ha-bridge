@@ -2,7 +2,7 @@
 
 *Local API bridge for the Kermi x-change heat pump — full Home Assistant control, no cloud, no Modbus.*
 
-![Version](https://img.shields.io/badge/version-v0.10.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-177%20passing-brightgreen) ![AppDaemon](https://img.shields.io/badge/AppDaemon-4.x-orange)
+![Version](https://img.shields.io/badge/version-v0.10.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-177%20passing-brightgreen) ![AppDaemon](https://img.shields.io/badge/AppDaemon-4.x-orange)
 
 AppDaemon app that bridges the **Kermi x-change dynamic** heat pump (x-center Interfacemodul) to Home Assistant via its local HTTP API. Publishes 20+ `sensor.kermi_*` entities and six control services — with no Modbus adapter, no cloud dependency, and no third-party middleware.
 
@@ -48,25 +48,30 @@ AppDaemon app that bridges the **Kermi x-change dynamic** heat pump (x-center In
 
 **1 — Clone and copy files**
 
+> **Important:** Copy only the `apps/kermi_bridge/` subdirectory — not the repository root. The destination must be whichever directory AppDaemon is configured to scan for apps (`app_dir` in `appdaemon.yaml`). To find it, check the AppDaemon log for the `Import paths:` line. The `kermi_bridge/` directory (underscored, not hyphenated) must sit directly inside that path — Python cannot import from a hyphenated directory name.
+
 ```bash
-git clone http://forgejo:3000/martin/kermi-ha-bridge.git
-cp -r kermi-ha-bridge/apps/kermi_bridge /config/appdaemon/apps/
+git clone <repo-url>
+# Replace <apps_dir> with your AppDaemon app_dir
+# e.g. /root/addon_configs/a0d7b954_appdaemon/apps  (AppDaemon add-on default)
+#   or /config/appdaemon/apps                        (if app_dir points to HA config)
+cp -r kermi-ha-bridge/apps/kermi_bridge <apps_dir>/
 ```
 
 **2 — Register the app**
 
-Add to `/config/appdaemon/apps/apps.yaml`:
+Add to `<apps_dir>/apps.yaml` (same directory you copied `kermi_bridge/` into):
 
 ```yaml
 kermi_bridge:
   module: kermi_bridge.kermi_bridge
   class: KermiBridge
-  em_config_path: /config/appdaemon/apps/kermi_bridge/config.yaml
+  em_config_path: <apps_dir>/kermi_bridge/config.yaml   # adjust to your actual app_dir path
 ```
 
 **3 — Create the config file**
 
-Create `/config/appdaemon/apps/kermi_bridge/config.yaml`:
+Create `<apps_dir>/kermi_bridge/config.yaml` (copy from `apps/kermi_bridge/config.yaml.example`):
 
 ```yaml
 kermi_bridge:
@@ -179,6 +184,7 @@ nc -zv <ip> 80
 
 | Symptom | Likely cause |
 |---|---|
+| `No module named 'kermi_bridge'` in AppDaemon log | Files are in the wrong directory or the directory is named with hyphens. Check the `Import paths:` line in the log to find the expected app dir, then verify that `kermi_bridge/` (underscored) exists directly inside it. See the [manual installation note on `app_dir`](#manual-installation). |
 | `sensor.kermi_bridge_status` = `auth_error` | Wrong password or x-center blocked the session — check unit sticker |
 | `sensor.kermi_bridge_status` = `unavailable` | Host unreachable; check IP and `nc -zv <ip> 80` |
 | All sensors `unavailable` after poll | Device ID mismatch; try omitting `device_id` to force auto-discovery |

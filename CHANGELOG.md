@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
+## [0.10.1] — 2026-05-09
+
+### Documentation
+- `README.md` — manual installation instructions now explain that the target path depends on AppDaemon's configured `app_dir`; added warning that only `apps/kermi_bridge/` (underscored) should be copied, not the repository root; troubleshooting table gains a `No module named 'kermi_bridge'` entry directing users to check the `Import paths:` line in the AppDaemon log
+
 ## [0.10.0] — 2026-04-27
 
 ### Fixed
