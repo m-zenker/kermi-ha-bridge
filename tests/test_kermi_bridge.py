@@ -985,9 +985,7 @@ class TestCommandRateLimiting:
         assert any("[DEBUG]" in m and "rate-limited" in m for m in mqtt_bridge._log_output)
 
     def test_rapid_energy_mode_cmd_rate_limited(self, mqtt_bridge, monkeypatch):
-        import asyncio as _asyncio
         scheduled = []
-        monkeypatch.setattr("kermi_bridge.kermi_bridge.asyncio.get_event_loop", lambda: None)
         monkeypatch.setattr(
             "kermi_bridge.kermi_bridge.asyncio.run_coroutine_threadsafe",
             lambda coro, loop: scheduled.append(coro) or type("F", (), {"result": lambda s: None})(),
@@ -995,3 +993,52 @@ class TestCommandRateLimiting:
         mqtt_bridge._on_cmd_energy_mode("mk1", {"payload": "NORMAL"})
         mqtt_bridge._on_cmd_energy_mode("mk1", {"payload": "NORMAL"})
         assert len(scheduled) == 1, "Second identical cmd should be rate-limited"
+
+
+# ── TestMqttCommandPath ───────────────────────────────────────────────────────
+
+class TestMqttCommandPath:
+    """_on_cmd_* handlers must schedule via run_coroutine_threadsafe (not get_event_loop)."""
+
+    @pytest.fixture(autouse=True)
+    def capture_scheduled(self, monkeypatch):
+        self.scheduled = []
+        monkeypatch.setattr(
+            "kermi_bridge.kermi_bridge.asyncio.run_coroutine_threadsafe",
+            lambda coro, loop: self.scheduled.append(coro) or type("F", (), {"result": lambda s: None})(),
+        )
+
+    def test_dhw_oneshot_schedules_and_calls_client(self, mqtt_bridge, mock_client):
+        mqtt_bridge._on_cmd_dhw_oneshot({"payload": ""})
+        assert len(self.scheduled) == 1
+        asyncio.run(self.scheduled[0])
+        mock_client.trigger_dhw_oneshot.assert_called_once()
+
+    def test_heating_curve_shift_valid_schedules_and_calls_client(self, mqtt_bridge, mock_client):
+        mqtt_bridge._on_cmd_heating_curve_shift("mk1", {"payload": "2"})
+        assert len(self.scheduled) == 1
+        asyncio.run(self.scheduled[0])
+        mock_client.set_heating_curve_shift.assert_called_once_with(2, ["MK1"])
+
+    def test_heating_curve_shift_out_of_range_does_not_schedule(self, mqtt_bridge, mock_client):
+        mqtt_bridge._on_cmd_heating_curve_shift("mk1", {"payload": "10"})
+        assert len(self.scheduled) == 0
+        assert any("[ERROR]" in m for m in mqtt_bridge._log_output)
+
+    def test_energy_mode_valid_schedules_coroutine(self, mqtt_bridge, mock_client):
+        mqtt_bridge._on_cmd_energy_mode("mk1", {"payload": "NORMAL"})
+        assert len(self.scheduled) == 1
+        asyncio.run(self.scheduled[0])
+        mock_client.set_energy_mode.assert_called_once()
+
+    def test_quiet_mode_on_schedules_and_calls_client(self, mqtt_bridge, mock_client):
+        mqtt_bridge._on_cmd_quiet_mode({"payload": "ON"})
+        assert len(self.scheduled) == 1
+        asyncio.run(self.scheduled[0])
+        mock_client.set_quiet_mode.assert_called_once_with(True)
+
+    def test_dhw_setpoint_valid_schedules_and_calls_client(self, mqtt_bridge, mock_client):
+        mqtt_bridge._on_cmd_dhw_setpoint({"payload": "55.0"})
+        assert len(self.scheduled) == 1
+        asyncio.run(self.scheduled[0])
+        mock_client.set_dhw_setpoint.assert_called_once_with(55.0)
