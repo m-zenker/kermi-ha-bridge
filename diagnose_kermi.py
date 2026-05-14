@@ -1,17 +1,17 @@
 import asyncio
 import json
 import logging
-from kermi_bridge.kermi_client import KermiClient
+from kermi_bridge.kermi_client import KermiClient, _DP
 
-# Configure logging to see discovery details
 logging.basicConfig(level=logging.DEBUG)
+
 
 async def diagnose_kermi(host, password):
     async with KermiClient(host, password) as client:
         print(f"\n--- Connection Successful ---")
         print(f"Device ID: {client._device_id}")
-        
-        # 1. Try to list all devices
+
+        # 1. List all devices
         try:
             devices = await client._get("Device/GetAllDevices")
             print(f"\n--- Devices found via GetAllDevices ---")
@@ -19,35 +19,54 @@ async def diagnose_kermi(host, password):
         except Exception as e:
             print(f"GetAllDevices failed: {e}")
 
-        # 2. Try the speculative Favorites discovery endpoint
-        # This endpoint is known to return WellKnownName mapping for many x-center versions
+        # 2. Speculative favorites discovery
         try:
             print(f"\n--- Attempting Datapoint Discovery via Favorite/GetFavorites ---")
-            favs = await client._post("Favorite/GetFavorites", {"WithDetails": True, "OnlyHomeScreen": False})
+            favs = await client._post(
+                "Favorite/GetFavorites",
+                {"WithDetails": True, "OnlyHomeScreen": False},
+            )
             print(json.dumps(favs, indent=2))
         except Exception as e:
             print(f"Favorite/GetFavorites discovery not available: {e}")
 
-        # 3. Verify current known GUIDs
-        print(f"\n--- Verifying current GUIDs in kermi_client.py ---")
+        # 3. Raw ReadValues response — distinguishes GUID mismatch from device_id mismatch
+        print(f"\n--- Raw ReadValues response ---")
+        try:
+            raw = await client.read_sensors_raw()
+            items = raw.get("ResponseData") or []
+            print(f"Top-level keys: {list(raw.keys())}")
+            print(f"ResponseData item count: {len(items)}")
+            if items:
+                reverse_dp = {v: k for k, v in _DP.items()}
+                print("\nReturned datapoints:")
+                for item in items:
+                    cfg_id = item.get("DatapointConfigId", "?")
+                    value  = item.get("Value")
+                    name   = reverse_dp.get(cfg_id, "UNKNOWN GUID")
+                    print(f"  {cfg_id}  [{name}]  = {value}")
+            else:
+                print("ResponseData is empty — device returned no values.")
+                print("Full raw response:")
+                print(json.dumps(raw, indent=2))
+        except Exception as e:
+            print(f"ReadValues raw dump failed: {e}")
+
+        # 4. Parsed sensor summary
+        print(f"\n--- Parsed sensor summary ---")
         try:
             sensors = await client.read_sensors()
-            found = []
-            missing = []
-            
-            # Since read_sensors returns a dataclass, we check for non-None values
+            found, missing = [], []
             for field_name, value in sensors.__dict__.items():
-                if field_name == "timestamp": continue
-                if value is not None:
-                    found.append(field_name)
-                else:
-                    missing.append(field_name)
-            
-            print(f"Successfully read {len(found)} datapoints: {', '.join(found)}")
+                if field_name == "timestamp":
+                    continue
+                (found if value is not None else missing).append(field_name)
+            print(f"Successfully read {len(found)} datapoints: {', '.join(found) or 'none'}")
             if missing:
-                print(f"Failed to read {len(missing)} datapoints (possibly different GUIDs): {', '.join(missing)}")
+                print(f"Returned None for {len(missing)} datapoints: {', '.join(missing)}")
         except Exception as e:
             print(f"Bulk read failed: {e}")
+
 
 if __name__ == "__main__":
     import sys

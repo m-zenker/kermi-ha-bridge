@@ -269,6 +269,15 @@ class KermiClient:
         Returns:
             A :class:`KermiSensors` dataclass populated from the device response.
         """
+        data = await self.read_sensors_raw()
+        return self._parse_sensors(data)
+
+    async def read_sensors_raw(self) -> dict:
+        """Return the raw ReadValues API response without parsing.
+
+        Useful for diagnostics: the response reveals whether datapoint GUIDs
+        match and what the device actually returns.
+        """
         await self._ensure_connected()
         payload = {
             "DatapointValues": [
@@ -276,8 +285,7 @@ class KermiClient:
                 for name in _READ_DATAPOINTS
             ]
         }
-        data = await self._post("Datapoint/ReadValues", payload)
-        return self._parse_sensors(data)
+        return await self._post("Datapoint/ReadValues", payload)
 
     async def set_energy_mode(
         self,
