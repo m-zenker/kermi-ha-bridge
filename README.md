@@ -185,6 +185,7 @@ nc -zv <ip> 80
 | Symptom | Likely cause |
 |---|---|
 | `No module named 'kermi_bridge'` in AppDaemon log | Files are in the wrong directory or the directory is named with hyphens. Check the `Import paths:` line in the log to find the expected app dir, then verify that `kermi_bridge/` (underscored) exists directly inside it. See the [manual installation note on `app_dir`](#manual-installation). |
+| `No module named 'voluptuous'` in AppDaemon log | You are running v0.10.2 or earlier. Upgrade to v0.10.3+ — `voluptuous` was replaced with pure-Python validation and is no longer required. |
 | `sensor.kermi_bridge_status` = `auth_error` | Wrong password or x-center blocked the session — check unit sticker |
 | `sensor.kermi_bridge_status` = `unavailable` | Host unreachable; check IP and `nc -zv <ip> 80` |
 | All sensors `unavailable` after poll | Device ID mismatch; try omitting `device_id` to force auto-discovery |

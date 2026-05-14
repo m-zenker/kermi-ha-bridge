@@ -7,6 +7,12 @@ Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
 ## [Unreleased]
 
+## [0.10.3] — 2026-05-14
+
+### Fixed
+- `apps/kermi_bridge/config_loader.py` — replaced `voluptuous` with pure-Python validation; `voluptuous` is not bundled with AppDaemon and was never listed as a `python_packages` requirement in the HACS install guide, causing `ModuleNotFoundError` on fresh installs. The public interface (`load_config`, `ConfigError`) and all error messages are unchanged.
+- `requirements.txt` — removed `voluptuous>=0.14.0`; the addon now has zero pip dependencies beyond what AppDaemon ships with (`aiohttp`, `pyyaml`)
+
 ## [0.10.2] — 2026-05-11
 
 ### Fixed
