@@ -69,6 +69,31 @@ _DP = {
 
 _REVERSE_DP = {v: k for k, v in _DP.items()}
 
+_WKN_TO_DP = {
+    "LuftTemperatur": "outside_temp",
+    # extend as more users report
+}
+
+
+def _find_error_guid(raw, raw_str=None):
+    """Return the first failing GUID from an error response, or None."""
+    if raw_str is None:
+        raw_str = json.dumps(raw)
+    for field in ("ConfigId", "DatapointConfigId", "FailingConfigId"):
+        val = raw.get(field)
+        if isinstance(val, str) and val in _REVERSE_DP:
+            return val
+    exc = raw.get("Exception") or raw.get("Error") or {}
+    if isinstance(exc, dict):
+        for field in ("ConfigId", "DatapointConfigId"):
+            val = exc.get(field)
+            if isinstance(val, str) and val in _REVERSE_DP:
+                return val
+    for guid in _REVERSE_DP:
+        if guid in raw_str:
+            return guid
+    return None
+
 
 def _make_opener():
     jar = http.cookiejar.CookieJar()
@@ -164,7 +189,18 @@ def main(host, password):
                         print(f"    {item.get('DatapointConfigId')}  = {item.get('Value')}")
             else:
                 print("  ResponseData is EMPTY — device_id accepted but returned no values.")
-                print("  Full response:", json.dumps(raw, indent=2))
+                raw_str = json.dumps(raw)
+                if "EX_LO_DATAPOINT_005" in raw_str:
+                    failing_guid = _find_error_guid(raw, raw_str)
+                    if failing_guid:
+                        dp_name = _REVERSE_DP[failing_guid]
+                        print(f'  EX_LO_DATAPOINT_005 — "{dp_name}" ({failing_guid}) not found.')
+                    else:
+                        print("  EX_LO_DATAPOINT_005 — firmware uses different datapoint GUIDs.")
+                    print("  Firmware uses different GUIDs — see section 4.")
+                print("  Full response:")
+                for line in json.dumps(raw, indent=2).splitlines():
+                    print(f"    {line}")
         except Exception as exc:
             print(f"  ReadValues failed: {exc}")
 
@@ -178,7 +214,98 @@ def main(host, password):
             opener, base, "Favorite/GetFavorites",
             {"WithDetails": True, "OnlyHomeScreen": False},
         )
-        print(json.dumps(favs, indent=2))
+        items = favs.get("ResponseData") or []
+        dp_items = [
+            i for i in items
+            if isinstance(i, dict) and str(i.get("$type", "")).endswith("FavoriteDatapoint")
+        ]
+
+        if not dp_items:
+            print("No FavoriteDatapoint items found in response.")
+            print("Full response:")
+            for line in json.dumps(favs, indent=2).splitlines():
+                print(f"  {line}")
+        else:
+            device_names = {d.get("DeviceId", ""): d.get("Name", "?") for d in candidates}
+
+            by_device = {}
+            for item in dp_items:
+                cfg = item.get("DatapointConfig") or {}
+                dev_id = item.get("DeviceId") or cfg.get("DeviceId") or "unknown"
+                by_device.setdefault(dev_id, []).append(item)
+
+            guid_to_wkn = {}
+
+            for dev_id, dev_items in by_device.items():
+                dev_name = device_names.get(dev_id, "?")
+                print(f"\nDevice: {dev_id[:8]}  ({dev_name})")
+                print(f"  {'GUID':<36}  {'WellKnownName':<36}  {'Display':<30}  Value")
+                print(f"  {'-'*36}  {'-'*36}  {'-'*30}  -----")
+                for item in dev_items:
+                    cfg = item.get("DatapointConfig") or {}
+                    val_obj = item.get("DatapointValue") or {}
+                    guid = item.get("DatapointConfigId") or cfg.get("DatapointConfigId") or "?"
+                    wkn = cfg.get("WellKnownName", "")
+                    display = cfg.get("DisplayName", "")
+                    unit = cfg.get("Unit", "")
+                    raw_val = val_obj.get("Value") if "Value" in val_obj else val_obj.get("NumericValue", "?")
+                    value_str = f"{raw_val} {unit}".strip() if unit else str(raw_val)
+
+                    guid_to_wkn[guid] = wkn
+
+                    if guid in _REVERSE_DP:
+                        tag = f"   <- bridge: {_REVERSE_DP[guid]} (MATCH)"
+                    elif wkn in _WKN_TO_DP:
+                        tag = f"   <- bridge: {_WKN_TO_DP[wkn]} (GUID MISMATCH)"
+                    else:
+                        tag = "   (no match in bridge _DP)"
+
+                    print(f"  {guid:<36}  {wkn:<36}  {display:<30}  {value_str}{tag}")
+
+            print(f"\n{'─' * 60}")
+            print("BRIDGE COMPATIBILITY SUMMARY")
+            print(f"{'─' * 60}")
+
+            all_fav_guids = set(guid_to_wkn)
+            supported, guid_mismatch, not_present = [], [], []
+            for dp_key, dp_guid in _DP.items():
+                if dp_guid in all_fav_guids:
+                    supported.append(dp_key)
+                    continue
+                wkn_for_key = next(
+                    (wkn for wkn, k in _WKN_TO_DP.items() if k == dp_key), None
+                )
+                if wkn_for_key:
+                    alt_guid = next(
+                        (g for g, w in guid_to_wkn.items() if w == wkn_for_key and g != dp_guid),
+                        None,
+                    )
+                    if alt_guid:
+                        guid_mismatch.append((dp_key, dp_guid, alt_guid))
+                        continue
+                not_present.append(dp_key)
+
+            if supported:
+                print(f"\n  Supported (GUID match in GetFavorites):")
+                for k in supported:
+                    print(f"    + {k}")
+            if guid_mismatch:
+                print(f"\n  GUID mismatch (WellKnownName matched, GUID differs):")
+                for k, old_g, new_g in guid_mismatch:
+                    print(f"    ~ {k}: bridge={old_g[:8]}...  firmware={new_g[:8]}...")
+            if not_present:
+                print(f"\n  Not present in GetFavorites ({len(not_present)} of {len(_DP)}):")
+                for k in not_present:
+                    print(f"    - {k}")
+
+            unknown_to_bridge = [
+                (g, w) for g, w in guid_to_wkn.items() if g not in _REVERSE_DP
+            ]
+            if unknown_to_bridge:
+                print(f"\n  UNKNOWN to bridge (in firmware favorites, not in bridge _DP):")
+                for guid, wkn in unknown_to_bridge:
+                    print(f"    ? {guid}  WellKnownName: {wkn}")
+
     except Exception as exc:
         print(f"Not available on this firmware: {exc}")
 
