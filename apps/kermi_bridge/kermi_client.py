@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import IntEnum
 from typing import Any
 
@@ -182,7 +182,7 @@ class KermiSensors:
     cop_heating_live: float | None = None
     cop_dhw_live: float | None = None
     # Metadata
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class KermiError(Exception):
