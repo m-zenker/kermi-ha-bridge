@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import appdaemon.plugins.hass.hassapi as hass
 
@@ -24,6 +24,7 @@ from kermi_bridge.kermi_client import (
     WezMode,
 )
 from kermi_bridge.mqtt_mixin import MQTTMixin
+
 from .config_loader import ConfigError, load_config
 
 _LOGGER = logging.getLogger(__name__)
@@ -198,7 +199,6 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
     def _cleanup_old_mqtt_discovery(self) -> None:
         """Clear all retained MQTT discovery messages from all historical topic formats."""
-        d = self._mqtt_device['identifiers'][0]
         specs = []
         # Sensors (only old unscoped format — scoped format is current and must not be cleared)
         for uid in [uid for uid, *_ in _SENSOR_DISCOVERY] + ["kermi_bridge_status"]:
@@ -410,7 +410,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
     def _status_attrs(self) -> dict:
         return {
-            "last_poll": datetime.now(timezone.utc).isoformat(),
+            "last_poll": datetime.now(UTC).isoformat(),
             "consecutive_failures": self._consecutive_failures,
             "poll_interval_s": self._poll_interval_s,
         }

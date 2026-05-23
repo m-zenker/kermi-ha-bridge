@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,6 +9,10 @@ import aiohttp
 import pytest
 
 from apps.kermi_bridge.kermi_client import (
+    _DP,
+    _TYPE_BOOL,
+    _TYPE_FLOAT,
+    _TYPE_INT,
     EnergyMode,
     KermiAuthError,
     KermiClient,
@@ -17,12 +20,6 @@ from apps.kermi_bridge.kermi_client import (
     KermiSensors,
     KermiWriteError,
     WezMode,
-    _CIRCUIT_TO_CURVE_DP,
-    _DP,
-    _TYPE_BOOL,
-    _TYPE_FLOAT,
-    _TYPE_INT,
-    _WEZ_TO_BETRIEBSART_DP,
 )
 
 # ── Fixtures & helpers ────────────────────────────────────────────────────────

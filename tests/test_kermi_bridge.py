@@ -8,12 +8,14 @@ AppDaemon's infrastructure __init__. Hass methods are monkey-patched per instanc
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import sys
 import types
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
+
 
 # Stub appdaemon before importing kermi_bridge (not installed in test env).
 # Use types.ModuleType (not MagicMock) so attribute access is plain and
@@ -29,7 +31,7 @@ sys.modules["appdaemon.plugins"] = types.ModuleType("appdaemon.plugins")
 sys.modules["appdaemon.plugins.hass"] = types.ModuleType("appdaemon.plugins.hass")
 sys.modules["appdaemon.plugins.hass.hassapi"] = _hassapi_mod
 
-from kermi_bridge.kermi_bridge import KermiBridge, _ALL_SENSOR_ENTITIES  # noqa: E402
+from kermi_bridge.kermi_bridge import _ALL_SENSOR_ENTITIES, KermiBridge  # noqa: E402
 from kermi_bridge.kermi_client import (  # noqa: E402
     EnergyMode,
     KermiAuthError,
@@ -39,7 +41,6 @@ from kermi_bridge.kermi_client import (  # noqa: E402
     KermiWriteError,
     WezMode,
 )
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -749,8 +750,6 @@ class TestSetWezMode:
 
 
 # ── MQTT test helpers ─────────────────────────────────────────────────────────
-
-import json as _json
 
 MINIMAL_KB_CONFIG_MQTT = {**MINIMAL_KB_CONFIG}
 
