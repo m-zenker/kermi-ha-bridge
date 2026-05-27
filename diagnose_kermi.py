@@ -13,7 +13,11 @@ What it does:
   3. Fires a ReadValues request against EVERY non-home-server device so you
      can see which device_id returns data and whether the datapoint GUIDs match.
   4. Tries the Favorite/GetFavorites endpoint to discover datapoint names on
-     devices that may use different GUIDs.
+     devices that may use different GUIDs (includes FavoriteDevice
+     VisualizationDatapoints for Rubin firmware).
+  5. Fetches the full datapoint catalogue for each DeviceType via
+     Datapoint/GetConfigsByDeviceType, showing all available GUIDs and which
+     ones the bridge already maps.
 """
 
 import http.cookiejar
@@ -217,8 +221,24 @@ def main(host, password):
         items = favs.get("ResponseData") or []
         dp_items = [
             i for i in items
-            if isinstance(i, dict) and str(i.get("$type", "")).endswith("FavoriteDatapoint")
+            if isinstance(i, dict) and "FavoriteDatapoint" in str(i.get("$type", ""))
         ]
+
+        # Also harvest VisualizationDatapoints from FavoriteDevice items
+        for dev_item in items:
+            if not (isinstance(dev_item, dict) and "FavoriteDevice" in str(dev_item.get("$type", ""))):
+                continue
+            for dp in (dev_item.get("VisualizationDatapoints") or {}).get("$values", []):
+                config = dp.get("Config") or {}
+                if not config.get("DatapointConfigId"):
+                    continue
+                dp_items.append({
+                    "DatapointConfigId": config["DatapointConfigId"],
+                    "DeviceId": dev_item.get("DeviceId", ""),
+                    "DatapointConfig": config,
+                    "DatapointValue": dp.get("DatapointValue") or {},
+                    "_source": "FavoriteDevice.VisualizationDatapoints",
+                })
 
         if not dp_items:
             print("No FavoriteDatapoint items found in response.")
@@ -260,7 +280,9 @@ def main(host, password):
                     else:
                         tag = "   (no match in bridge _DP)"
 
-                    print(f"  {guid:<36}  {wkn:<36}  {display:<30}  {value_str}{tag}")
+                    source = item.get("_source", "")
+                    source_str = f"  [{source}]" if source else ""
+                    print(f"  {guid:<36}  {wkn:<36}  {display:<30}  {value_str}{tag}{source_str}")
 
             print(f"\n{'─' * 60}")
             print("BRIDGE COMPATIBILITY SUMMARY")
@@ -308,6 +330,42 @@ def main(host, password):
 
     except Exception as exc:
         print(f"Not available on this firmware: {exc}")
+
+    # ── 5. Full datapoint catalogue per device type ───────────────────────────
+    print("\n" + "=" * 60)
+    print("5. DATAPOINT CATALOGUE  (Datapoint/GetConfigsByDeviceType)")
+    print("   (full list of datapoints supported by each device type)")
+    print("=" * 60)
+    seen_dtypes = []
+    for d in candidates:
+        dtype = d.get("DeviceType", 0)
+        if dtype and dtype not in seen_dtypes:
+            seen_dtypes.append(dtype)
+
+    for dtype in seen_dtypes:
+        print(f"\nDeviceType {dtype}:")
+        try:
+            raw = _post(opener, base, "Datapoint/GetConfigsByDeviceType", {"DeviceType": dtype})
+            configs = raw.get("ResponseData") or []
+            if not configs:
+                print("  (no configs returned)")
+                continue
+            configs_sorted = sorted(configs, key=lambda c: c.get("Sort", 0))
+            print(f"  {'GUID':<36}  {'WellKnownName':<36}  {'DisplayName':<30}  Unit  Bridge")
+            print(f"  {'-'*36}  {'-'*36}  {'-'*30}  ----  ------")
+            for cfg in configs_sorted:
+                guid = cfg.get("DatapointConfigId", "?")
+                wkn = cfg.get("WellKnownName", "")
+                display = cfg.get("DisplayName", "")
+                unit = cfg.get("Unit", "")
+                if guid in _REVERSE_DP:
+                    bridge_tag = f"<- bridge: {_REVERSE_DP[guid]}"
+                else:
+                    bridge_tag = ""
+                print(f"  {guid:<36}  {wkn:<36}  {display:<30}  {unit:<4}  {bridge_tag}")
+            print(f"  Total: {len(configs)} configs")
+        except Exception as exc:
+            print(f"  Not available on this firmware: {exc}")
 
 
 if __name__ == "__main__":
