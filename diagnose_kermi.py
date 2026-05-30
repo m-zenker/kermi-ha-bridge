@@ -74,8 +74,16 @@ _DP = {
 _REVERSE_DP = {v: k for k, v in _DP.items()}
 
 _WKN_TO_DP = {
-    "LuftTemperatur": "outside_temp",
-    # extend as more users report
+    "LuftTemperatur":                        "outside_temp",
+    # Rubin (x-change dynamic pro, DeviceType=97)
+    "Rubin_CombinedHeatpumpState":           "hp_state",
+    "Rubin_CurrentCOP":                      "cop",
+    "Rubin_PvIsActive":                      "smart_grid_status",
+    # BufferSystem (DeviceType=95)
+    "BufferSystem_TweTemperatureActual":     "hot_water_temp",
+    "BufferSystem_TweSetpoint":              "dhw_setpoint",
+    "BufferSystem_HeatingTemperatureActual": "buffer_temp",
+    "BufferSystem_HeatingSetpoint":          "heating_setpoint",
 }
 
 
@@ -267,7 +275,7 @@ def main(host, password):
                     guid = item.get("DatapointConfigId") or cfg.get("DatapointConfigId") or "?"
                     wkn = cfg.get("WellKnownName", "")
                     display = cfg.get("DisplayName", "")
-                    unit = cfg.get("Unit", "")
+                    unit = cfg.get("Unit") or ""
                     raw_val = val_obj.get("Value") if "Value" in val_obj else val_obj.get("NumericValue", "?")
                     value_str = f"{raw_val} {unit}".strip() if unit else str(raw_val)
 
@@ -357,7 +365,7 @@ def main(host, password):
                 guid = cfg.get("DatapointConfigId", "?")
                 wkn = cfg.get("WellKnownName", "")
                 display = cfg.get("DisplayName", "")
-                unit = cfg.get("Unit", "")
+                unit = cfg.get("Unit") or ""
                 if guid in _REVERSE_DP:
                     bridge_tag = f"<- bridge: {_REVERSE_DP[guid]}"
                 else:
