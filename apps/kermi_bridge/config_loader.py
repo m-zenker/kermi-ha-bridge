@@ -1,4 +1,4 @@
-"""Load and validate kermi_bridge config.yaml."""
+"""Load and validate kermi_bridge config.yaml using voluptuous."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import voluptuous as vol
 import yaml
 
 _LOGGER = logging.getLogger(__name__)
@@ -17,49 +18,43 @@ class ConfigError(Exception):
     """Raised when the configuration file is invalid."""
 
 
-def _validate(raw: dict) -> dict:
-    bridge = raw.get("kermi_bridge")
-    if not isinstance(bridge, dict):
-        raise ConfigError("Missing required key 'kermi_bridge'")
+def _poll_interval(value: Any) -> int:
+    value = vol.Coerce(int)(value)
+    if value < 10:
+        raise vol.Invalid(f"poll_interval_s must be >= 10, got {value}")
+    return value
 
-    for key in ("host", "password"):
-        if key not in bridge:
-            raise ConfigError(f"kermi_bridge → '{key}' is required")
-        if not isinstance(bridge[key], str):
-            raise ConfigError(f"kermi_bridge → '{key}' must be a string")
 
-    if "device_id" in bridge and not isinstance(bridge["device_id"], str):
-        raise ConfigError("kermi_bridge → 'device_id' must be a string")
-
-    poll = int(bridge.get("poll_interval_s", 30))
-    if poll < 10:
-        raise ConfigError(f"kermi_bridge → poll_interval_s must be >= 10, got {poll}")
-    bridge["poll_interval_s"] = poll
-
-    mf = int(bridge.get("max_failures", 5))
-    if mf < 1:
-        raise ConfigError(f"kermi_bridge → max_failures must be >= 1, got {mf}")
-    bridge["max_failures"] = mf
-
-    ts = int(bridge.get("timeout_s", 10))
-    if ts < 1:
-        raise ConfigError(f"kermi_bridge → timeout_s must be >= 1, got {ts}")
-    bridge["timeout_s"] = ts
-
-    circuits_raw = bridge.get("circuits", ("MK1", "MK2"))
-    if not isinstance(circuits_raw, (list, tuple)):
-        raise ConfigError("kermi_bridge → circuits must be a list")
-    circuits = list(circuits_raw)
-    if not circuits:
-        raise ConfigError("kermi_bridge → circuits must not be empty")
-    for c in circuits:
+def _circuit_list(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        raise vol.Invalid("circuits must be a list")
+    if not value:
+        raise vol.Invalid("circuits must not be empty")
+    for c in value:
         if c not in _VALID_CIRCUITS:
-            raise ConfigError(
-                f"kermi_bridge → invalid circuit '{c}'. Valid: {sorted(_VALID_CIRCUITS)}"
-            )
-    bridge["circuits"] = circuits
+            raise vol.Invalid(f"Invalid circuit '{c}'. Valid: {sorted(_VALID_CIRCUITS)}")
+    return list(value)
 
-    return raw
+
+_KERMI_BRIDGE_SCHEMA = vol.Schema(
+    {
+        vol.Required("host"): str,
+        vol.Required("password"): str,
+        vol.Optional("device_id"): str,
+        vol.Optional("poll_interval_s", default=30): _poll_interval,
+        vol.Optional("max_failures", default=5): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional("timeout_s", default=10): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional("circuits", default=("MK1", "MK2")): _circuit_list,
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
+_CONFIG_SCHEMA = vol.Schema(
+    {
+        vol.Required("kermi_bridge"): _KERMI_BRIDGE_SCHEMA,
+    },
+    extra=vol.ALLOW_EXTRA,
+)
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -87,7 +82,11 @@ def load_config(path: str | Path) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ConfigError(f"{path} must be a YAML mapping, got {type(raw).__name__}")
 
-    _validate(raw)
+    try:
+        config = _CONFIG_SCHEMA(raw)
+    except vol.Invalid as exc:
+        key_path = " → ".join(str(p) for p in exc.path) if exc.path else "(root)"
+        raise ConfigError(f"Configuration error at '{key_path}': {exc.msg}") from exc
 
     _LOGGER.debug("KermiBridge configuration loaded from %s", path)
-    return raw
+    return config

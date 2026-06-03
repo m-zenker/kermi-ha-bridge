@@ -10,10 +10,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import appdaemon.plugins.hass.hassapi as hass
-
 from kermi_bridge.kermi_client import (
     EnergyMode,
     KermiAuthError,
@@ -24,6 +23,7 @@ from kermi_bridge.kermi_client import (
     WezMode,
 )
 from kermi_bridge.mqtt_mixin import MQTTMixin
+
 from .config_loader import ConfigError, load_config
 
 _LOGGER = logging.getLogger(__name__)
@@ -81,73 +81,111 @@ _ALL_SENSOR_ENTITIES = [
 # Used by both _publish_sensors() and _mark_all_unavailable() so attributes are
 # preserved even when state transitions to "unavailable".
 _ENTITY_ATTRS: dict[str, dict] = {
-    "sensor.kermi_outside_temp":             {"device_class": "temperature", "unit_of_measurement": "°C"},
-    "sensor.kermi_outside_temp_avg":         {"device_class": "temperature", "unit_of_measurement": "°C"},
-    "sensor.kermi_flow_temp_mk1":            {"device_class": "temperature", "unit_of_measurement": "°C"},
-    "sensor.kermi_flow_temp_mk2":            {"device_class": "temperature", "unit_of_measurement": "°C"},
-    "sensor.kermi_hot_water_temp":           {"device_class": "temperature", "unit_of_measurement": "°C"},
-    "sensor.kermi_buffer_temp":              {"device_class": "temperature", "unit_of_measurement": "°C"},
-    "sensor.kermi_heating_setpoint":         {"device_class": "temperature", "unit_of_measurement": "°C"},
-    "sensor.kermi_setpoint_mk1":             {"device_class": "temperature", "unit_of_measurement": "°C"},
-    "sensor.kermi_compressor_power_kw":      {"device_class": "power", "state_class": "measurement", "unit_of_measurement": "kW"},
-    "sensor.kermi_heating_output_kw":        {"device_class": "power", "state_class": "measurement", "unit_of_measurement": "kW"},
-    "sensor.kermi_cop":                      {"state_class": "measurement"},
-    "sensor.kermi_cop_heating_avg":          {"state_class": "measurement"},
-    "sensor.kermi_scop":                     {"state_class": "measurement"},
-    "sensor.kermi_lifetime_electricity_kwh": {"device_class": "energy", "state_class": "total_increasing", "unit_of_measurement": "kWh"},
-    "sensor.kermi_lifetime_heat_kwh":        {"device_class": "energy", "state_class": "total_increasing", "unit_of_measurement": "kWh"},
-    "sensor.kermi_hp_state":                 {},
-    "sensor.kermi_smart_grid_status":        {},
-    "binary_sensor.kermi_evu_lock":          {"device_class": "lock"},
-    "sensor.kermi_electricity_heating_kwh":  {"device_class": "energy", "state_class": "total_increasing", "unit_of_measurement": "kWh"},
-    "sensor.kermi_electricity_dhw_kwh":      {"device_class": "energy", "state_class": "total_increasing", "unit_of_measurement": "kWh"},
+    "sensor.kermi_outside_temp": {"device_class": "temperature", "unit_of_measurement": "°C"},
+    "sensor.kermi_outside_temp_avg": {"device_class": "temperature", "unit_of_measurement": "°C"},
+    "sensor.kermi_flow_temp_mk1": {"device_class": "temperature", "unit_of_measurement": "°C"},
+    "sensor.kermi_flow_temp_mk2": {"device_class": "temperature", "unit_of_measurement": "°C"},
+    "sensor.kermi_hot_water_temp": {"device_class": "temperature", "unit_of_measurement": "°C"},
+    "sensor.kermi_buffer_temp": {"device_class": "temperature", "unit_of_measurement": "°C"},
+    "sensor.kermi_heating_setpoint": {"device_class": "temperature", "unit_of_measurement": "°C"},
+    "sensor.kermi_setpoint_mk1": {"device_class": "temperature", "unit_of_measurement": "°C"},
+    "sensor.kermi_compressor_power_kw": {
+        "device_class": "power",
+        "state_class": "measurement",
+        "unit_of_measurement": "kW",
+    },
+    "sensor.kermi_heating_output_kw": {
+        "device_class": "power",
+        "state_class": "measurement",
+        "unit_of_measurement": "kW",
+    },
+    "sensor.kermi_cop": {"state_class": "measurement"},
+    "sensor.kermi_cop_heating_avg": {"state_class": "measurement"},
+    "sensor.kermi_scop": {"state_class": "measurement"},
+    "sensor.kermi_lifetime_electricity_kwh": {
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "unit_of_measurement": "kWh",
+    },
+    "sensor.kermi_lifetime_heat_kwh": {
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "unit_of_measurement": "kWh",
+    },
+    "sensor.kermi_hp_state": {},
+    "sensor.kermi_smart_grid_status": {},
+    "binary_sensor.kermi_evu_lock": {"device_class": "lock"},
+    "sensor.kermi_electricity_heating_kwh": {
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "unit_of_measurement": "kWh",
+    },
+    "sensor.kermi_electricity_dhw_kwh": {
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "unit_of_measurement": "kWh",
+    },
     # Energy-mode entities: {} static attrs; mode_int is added dynamically on success only.
-    "sensor.kermi_energy_mode_mk1":          {},
-    "sensor.kermi_energy_mode_mk2":          {},
-    "sensor.kermi_energy_mode_hk":           {},
+    "sensor.kermi_energy_mode_mk1": {},
+    "sensor.kermi_energy_mode_mk2": {},
+    "sensor.kermi_energy_mode_hk": {},
     # WEZ entities
-    "sensor.kermi_wez1_status":              {},
-    "sensor.kermi_wez1_operating_hours":     {"state_class": "total_increasing", "unit_of_measurement": "h"},
-    "sensor.kermi_wez1_betriebsart":         {},
-    "sensor.kermi_wez2_status":              {},
-    "sensor.kermi_wez2_operating_hours":     {"state_class": "total_increasing", "unit_of_measurement": "h"},
-    "sensor.kermi_wez2_betriebsart":         {},
+    "sensor.kermi_wez1_status": {},
+    "sensor.kermi_wez1_operating_hours": {"state_class": "total_increasing", "unit_of_measurement": "h"},
+    "sensor.kermi_wez1_betriebsart": {},
+    "sensor.kermi_wez2_status": {},
+    "sensor.kermi_wez2_operating_hours": {"state_class": "total_increasing", "unit_of_measurement": "h"},
+    "sensor.kermi_wez2_betriebsart": {},
     # WEZ additional monitoring sensors
-    "sensor.kermi_wp_return_temp":           {"device_class": "temperature", "unit_of_measurement": "°C"},
-    "sensor.kermi_wp_flow_temp_lc":          {"device_class": "temperature", "unit_of_measurement": "°C"},
-    "sensor.kermi_cop_heating_live":         {"state_class": "measurement"},
-    "sensor.kermi_cop_dhw_live":             {"state_class": "measurement"},
+    "sensor.kermi_wp_return_temp": {"device_class": "temperature", "unit_of_measurement": "°C"},
+    "sensor.kermi_wp_flow_temp_lc": {"device_class": "temperature", "unit_of_measurement": "°C"},
+    "sensor.kermi_cop_heating_live": {"state_class": "measurement"},
+    "sensor.kermi_cop_dhw_live": {"state_class": "measurement"},
 }
 
 # MQTT sensor discovery config: (uid, name, unit, icon, device_class, state_class)
 _SENSOR_DISCOVERY = [
-    ("kermi_outside_temp",      "Kermi Outside Temperature",      "°C",  "mdi:thermometer",    "temperature", None),
-    ("kermi_outside_temp_avg",  "Kermi Outside Temperature Avg",  "°C",  "mdi:thermometer",    "temperature", None),
-    ("kermi_flow_temp_mk1",     "Kermi Flow Temperature MK1",     "°C",  "mdi:thermometer",    "temperature", None),
-    ("kermi_flow_temp_mk2",     "Kermi Flow Temperature MK2",     "°C",  "mdi:thermometer",    "temperature", None),
-    ("kermi_hot_water_temp",    "Kermi Hot Water Temperature",    "°C",  "mdi:thermometer",    "temperature", None),
-    ("kermi_buffer_temp",       "Kermi Buffer Temperature",       "°C",  "mdi:thermometer",    "temperature", None),
-    ("kermi_heating_setpoint",  "Kermi Heating Setpoint",         "°C",  "mdi:thermometer",    "temperature", None),
-    ("kermi_setpoint_mk1",      "Kermi Setpoint MK1",             "°C",  "mdi:thermometer",    "temperature", None),
-    ("kermi_compressor_power_kw", "Kermi Compressor Power",       "kW",  "mdi:lightning-bolt", "power",       "measurement"),
-    ("kermi_heating_output_kw", "Kermi Heating Output",           "kW",  "mdi:heat-wave",      "power",       "measurement"),
-    ("kermi_cop",               "Kermi COP",                      "",    "mdi:gauge",          None,          "measurement"),
-    ("kermi_cop_heating_avg",   "Kermi COP Heating Avg",          "",    "mdi:gauge",          None,          "measurement"),
-    ("kermi_scop",              "Kermi SCOP",                     "",    "mdi:gauge",          None,          "measurement"),
-    ("kermi_lifetime_electricity_kwh", "Kermi Lifetime Electricity", "kWh", "mdi:lightning-bolt", "energy", "total_increasing"),
-    ("kermi_lifetime_heat_kwh", "Kermi Lifetime Heat",            "kWh", "mdi:heat-wave",      "energy",      "total_increasing"),
-    ("kermi_electricity_heating_kwh", "Kermi Electricity Heating","kWh", "mdi:lightning-bolt", "energy",      "total_increasing"),
-    ("kermi_electricity_dhw_kwh", "Kermi Electricity DHW",        "kWh", "mdi:lightning-bolt", "energy",      "total_increasing"),
-    ("kermi_hp_state",          "Kermi HP State",                 "",    "mdi:heat-pump",      None,          None),
-    ("kermi_smart_grid_status", "Kermi Smart Grid Status",        "",    "mdi:transmission-tower", None,      None),
-    ("kermi_wez1_status",          "Kermi WEZ 1 Status",          "",    "mdi:heat-pump-outline", None,        None),
-    ("kermi_wez1_operating_hours", "Kermi WEZ 1 Operating Hours", "h",   "mdi:clock-outline",     None,        "total_increasing"),
-    ("kermi_wez2_status",          "Kermi WEZ 2 Status",          "",    "mdi:heat-pump-outline", None,        None),
-    ("kermi_wez2_operating_hours", "Kermi WEZ 2 Operating Hours", "h",   "mdi:clock-outline",     None,        "total_increasing"),
-    ("kermi_wp_return_temp",       "Kermi WP Return Temp",        "°C",  "mdi:thermometer",       "temperature", "measurement"),
-    ("kermi_wp_flow_temp_lc",      "Kermi WP Flow Temp LC",       "°C",  "mdi:thermometer",       "temperature", "measurement"),
-    ("kermi_cop_heating_live",     "Kermi COP Heating (live)",    "",    "mdi:heat-pump",         None,          "measurement"),
-    ("kermi_cop_dhw_live",         "Kermi COP DHW (live)",        "",    "mdi:water-boiler",      None,          "measurement"),
+    ("kermi_outside_temp", "Kermi Outside Temperature", "°C", "mdi:thermometer", "temperature", None),
+    ("kermi_outside_temp_avg", "Kermi Outside Temperature Avg", "°C", "mdi:thermometer", "temperature", None),
+    ("kermi_flow_temp_mk1", "Kermi Flow Temperature MK1", "°C", "mdi:thermometer", "temperature", None),
+    ("kermi_flow_temp_mk2", "Kermi Flow Temperature MK2", "°C", "mdi:thermometer", "temperature", None),
+    ("kermi_hot_water_temp", "Kermi Hot Water Temperature", "°C", "mdi:thermometer", "temperature", None),
+    ("kermi_buffer_temp", "Kermi Buffer Temperature", "°C", "mdi:thermometer", "temperature", None),
+    ("kermi_heating_setpoint", "Kermi Heating Setpoint", "°C", "mdi:thermometer", "temperature", None),
+    ("kermi_setpoint_mk1", "Kermi Setpoint MK1", "°C", "mdi:thermometer", "temperature", None),
+    ("kermi_compressor_power_kw", "Kermi Compressor Power", "kW", "mdi:lightning-bolt", "power", "measurement"),
+    ("kermi_heating_output_kw", "Kermi Heating Output", "kW", "mdi:heat-wave", "power", "measurement"),
+    ("kermi_cop", "Kermi COP", "", "mdi:gauge", None, "measurement"),
+    ("kermi_cop_heating_avg", "Kermi COP Heating Avg", "", "mdi:gauge", None, "measurement"),
+    ("kermi_scop", "Kermi SCOP", "", "mdi:gauge", None, "measurement"),
+    (
+        "kermi_lifetime_electricity_kwh",
+        "Kermi Lifetime Electricity",
+        "kWh",
+        "mdi:lightning-bolt",
+        "energy",
+        "total_increasing",
+    ),
+    ("kermi_lifetime_heat_kwh", "Kermi Lifetime Heat", "kWh", "mdi:heat-wave", "energy", "total_increasing"),
+    (
+        "kermi_electricity_heating_kwh",
+        "Kermi Electricity Heating",
+        "kWh",
+        "mdi:lightning-bolt",
+        "energy",
+        "total_increasing",
+    ),
+    ("kermi_electricity_dhw_kwh", "Kermi Electricity DHW", "kWh", "mdi:lightning-bolt", "energy", "total_increasing"),
+    ("kermi_hp_state", "Kermi HP State", "", "mdi:heat-pump", None, None),
+    ("kermi_smart_grid_status", "Kermi Smart Grid Status", "", "mdi:transmission-tower", None, None),
+    ("kermi_wez1_status", "Kermi WEZ 1 Status", "", "mdi:heat-pump-outline", None, None),
+    ("kermi_wez1_operating_hours", "Kermi WEZ 1 Operating Hours", "h", "mdi:clock-outline", None, "total_increasing"),
+    ("kermi_wez2_status", "Kermi WEZ 2 Status", "", "mdi:heat-pump-outline", None, None),
+    ("kermi_wez2_operating_hours", "Kermi WEZ 2 Operating Hours", "h", "mdi:clock-outline", None, "total_increasing"),
+    ("kermi_wp_return_temp", "Kermi WP Return Temp", "°C", "mdi:thermometer", "temperature", "measurement"),
+    ("kermi_wp_flow_temp_lc", "Kermi WP Flow Temp LC", "°C", "mdi:thermometer", "temperature", "measurement"),
+    ("kermi_cop_heating_live", "Kermi COP Heating (live)", "", "mdi:heat-pump", None, "measurement"),
+    ("kermi_cop_dhw_live", "Kermi COP DHW (live)", "", "mdi:water-boiler", None, "measurement"),
     # Note: kermi_bridge_status is published separately in _publish_mqtt_discovery()
     # because it requires a json_attrs_topic — do not add it here.
 ]
@@ -157,9 +195,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
     """AppDaemon app: polls Kermi x-center and publishes HA sensors + services."""
 
     async def initialize(self) -> None:
-        config_path = self.args.get(
-            "em_config_path", "/config/apps/kermi_bridge/config.yaml"
-        )
+        config_path = self.args.get("em_config_path", "/config/apps/kermi_bridge/config.yaml")
         try:
             cfg = load_config(config_path)
         except ConfigError as exc:
@@ -198,7 +234,6 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
     def _cleanup_old_mqtt_discovery(self) -> None:
         """Clear all retained MQTT discovery messages from all historical topic formats."""
-        d = self._mqtt_device['identifiers'][0]
         specs = []
         # Sensors (only old unscoped format — scoped format is current and must not be cleared)
         for uid in [uid for uid, *_ in _SENSOR_DISCOVERY] + ["kermi_bridge_status"]:
@@ -234,15 +269,17 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
         # Bridge status with attributes
         self._mqtt_publish_sensor_discovery(
-            "kermi_bridge_status", "Kermi Bridge Status",
-            "", "mdi:bridge", None, None,
+            "kermi_bridge_status",
+            "Kermi Bridge Status",
+            "",
+            "mdi:bridge",
+            None,
+            None,
             json_attrs_topic=self._attrs_topic("kermi_bridge_status"),
         )
 
         # Binary sensor
-        self._mqtt_publish_binary_sensor_discovery(
-            "kermi_evu_lock", "Kermi EVU Lock", "mdi:lock", "lock"
-        )
+        self._mqtt_publish_binary_sensor_discovery("kermi_evu_lock", "Kermi EVU Lock", "mdi:lock", "lock")
 
         # Energy mode selects: all 3 circuits are always published because every
         # Kermi circuit has an energy mode regardless of self._circuits config.
@@ -267,8 +304,13 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
         # DHW setpoint number
         self._mqtt_publish_number_discovery(
-            "kermi_dhw_setpoint", "Kermi DHW Setpoint",
-            "°C", 0, 85, 0.5, "mdi:water-thermometer",
+            "kermi_dhw_setpoint",
+            "Kermi DHW Setpoint",
+            "°C",
+            0,
+            85,
+            0.5,
+            "mdi:water-thermometer",
         )
 
         # Heating curve shift numbers: only for circuits in self._circuits config.
@@ -280,41 +322,42 @@ class KermiBridge(MQTTMixin, hass.Hass):
             self._mqtt_publish_number_discovery(
                 uid,
                 f"Kermi Heating Curve Shift {circuit.upper()}",
-                "", -5, 5, 1, "mdi:chart-line",
+                "",
+                -5,
+                5,
+                1,
+                "mdi:chart-line",
             )
 
         # Quiet mode switch
-        self._mqtt_publish_switch_discovery(
-            "kermi_quiet_mode", "Kermi Quiet Mode", "mdi:volume-off"
-        )
+        self._mqtt_publish_switch_discovery("kermi_quiet_mode", "Kermi Quiet Mode", "mdi:volume-off")
 
         # Buttons
-        self._mqtt_publish_button_discovery(
-            "kermi_dhw_oneshot", "Kermi DHW Oneshot", "mdi:water-boiler"
-        )
-        self._mqtt_publish_button_discovery(
-            "kermi_refresh", "Kermi Refresh", "mdi:refresh"
-        )
+        self._mqtt_publish_button_discovery("kermi_dhw_oneshot", "Kermi DHW Oneshot", "mdi:water-boiler")
+        self._mqtt_publish_button_discovery("kermi_refresh", "Kermi Refresh", "mdi:refresh")
 
     def _subscribe_mqtt_commands(self) -> None:
         # Energy mode selects
         for circuit in ["mk1", "mk2", "hk"]:
             uid = f"kermi_energy_mode_{circuit}"
             self._mqtt_subscribe_command(
-                "select", uid,
+                "select",
+                uid,
                 lambda event, data, kwargs, c=circuit: self._on_cmd_energy_mode(c, data),
             )
 
         # WEZ Betriebsart selects
         for wez_n in [1, 2]:
             self._mqtt_subscribe_command(
-                "select", f"kermi_wez{wez_n}_betriebsart",
+                "select",
+                f"kermi_wez{wez_n}_betriebsart",
                 lambda event, data, kwargs, n=wez_n: self._on_cmd_wez_mode(n, data),
             )
 
         # DHW setpoint
         self._mqtt_subscribe_command(
-            "number", "kermi_dhw_setpoint",
+            "number",
+            "kermi_dhw_setpoint",
             lambda event, data, kwargs: self._on_cmd_dhw_setpoint(data),
         )
 
@@ -322,45 +365,37 @@ class KermiBridge(MQTTMixin, hass.Hass):
         for circuit in self._circuits:
             uid = f"kermi_heating_curve_shift_{circuit.lower()}"
             self._mqtt_subscribe_command(
-                "number", uid,
+                "number",
+                uid,
                 lambda event, data, kwargs, c=circuit: self._on_cmd_heating_curve_shift(c, data),
             )
 
         # Quiet mode switch
         self._mqtt_subscribe_command(
-            "switch", "kermi_quiet_mode",
+            "switch",
+            "kermi_quiet_mode",
             lambda event, data, kwargs: self._on_cmd_quiet_mode(data),
         )
 
         # Buttons
         self._mqtt_subscribe_command(
-            "button", "kermi_dhw_oneshot",
+            "button",
+            "kermi_dhw_oneshot",
             lambda event, data, kwargs: self._on_cmd_dhw_oneshot(data),
         )
         self._mqtt_subscribe_command(
-            "button", "kermi_refresh",
+            "button",
+            "kermi_refresh",
             lambda event, data, kwargs: self._on_cmd_refresh(data),
         )
 
     def _register_services(self) -> None:
-        self.register_service(
-            "kermi_bridge/set_energy_mode", self._svc_set_energy_mode
-        )
-        self.register_service(
-            "kermi_bridge/set_dhw_setpoint", self._svc_set_dhw_setpoint
-        )
-        self.register_service(
-            "kermi_bridge/trigger_dhw_oneshot", self._svc_trigger_dhw_oneshot
-        )
-        self.register_service(
-            "kermi_bridge/set_quiet_mode", self._svc_set_quiet_mode
-        )
-        self.register_service(
-            "kermi_bridge/set_heating_curve_shift", self._svc_set_heating_curve_shift
-        )
-        self.register_service(
-            "kermi_bridge/set_wez_mode", self._svc_set_wez_mode
-        )
+        self.register_service("kermi_bridge/set_energy_mode", self._svc_set_energy_mode)
+        self.register_service("kermi_bridge/set_dhw_setpoint", self._svc_set_dhw_setpoint)
+        self.register_service("kermi_bridge/trigger_dhw_oneshot", self._svc_trigger_dhw_oneshot)
+        self.register_service("kermi_bridge/set_quiet_mode", self._svc_set_quiet_mode)
+        self.register_service("kermi_bridge/set_heating_curve_shift", self._svc_set_heating_curve_shift)
+        self.register_service("kermi_bridge/set_wez_mode", self._svc_set_wez_mode)
         self.register_service("kermi_bridge/refresh", self._svc_refresh)
 
     async def _poll(self, kwargs: dict) -> None:
@@ -370,9 +405,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
         try:
             sensors = await self._client.read_sensors()
         except KermiAuthError as exc:
-            self.log(
-                f"KermiBridge auth error — stopping poll: {exc}", level="ERROR"
-            )
+            self.log(f"KermiBridge auth error — stopping poll: {exc}", level="ERROR")
             self._mark_all_unavailable()
             self._set_bridge_status("auth_error")
             self.fire_event("kermi_bridge_auth_error", message=str(exc))
@@ -410,7 +443,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
     def _status_attrs(self) -> dict:
         return {
-            "last_poll": datetime.now(timezone.utc).isoformat(),
+            "last_poll": datetime.now(UTC).isoformat(),
             "consecutive_failures": self._consecutive_failures,
             "poll_interval_s": self._poll_interval_s,
         }
@@ -425,33 +458,33 @@ class KermiBridge(MQTTMixin, hass.Hass):
         self._mqtt_publish_availability("online")
 
         simple = [
-            ("kermi_outside_temp",             sensors.outside_temp),
-            ("kermi_outside_temp_avg",         sensors.outside_temp_avg),
-            ("kermi_flow_temp_mk1",            sensors.flow_temp_mk1),
-            ("kermi_flow_temp_mk2",            sensors.flow_temp_mk2),
-            ("kermi_hot_water_temp",           sensors.hot_water_temp),
-            ("kermi_buffer_temp",              sensors.buffer_temp),
-            ("kermi_heating_setpoint",         sensors.heating_setpoint),
-            ("kermi_setpoint_mk1",             sensors.setpoint_mk1),
-            ("kermi_compressor_power_kw",      sensors.compressor_power_kw),
-            ("kermi_heating_output_kw",        sensors.heating_output_kw),
-            ("kermi_cop",                      sensors.cop),
-            ("kermi_cop_heating_avg",          sensors.cop_heating_avg),
-            ("kermi_scop",                     sensors.scop),
+            ("kermi_outside_temp", sensors.outside_temp),
+            ("kermi_outside_temp_avg", sensors.outside_temp_avg),
+            ("kermi_flow_temp_mk1", sensors.flow_temp_mk1),
+            ("kermi_flow_temp_mk2", sensors.flow_temp_mk2),
+            ("kermi_hot_water_temp", sensors.hot_water_temp),
+            ("kermi_buffer_temp", sensors.buffer_temp),
+            ("kermi_heating_setpoint", sensors.heating_setpoint),
+            ("kermi_setpoint_mk1", sensors.setpoint_mk1),
+            ("kermi_compressor_power_kw", sensors.compressor_power_kw),
+            ("kermi_heating_output_kw", sensors.heating_output_kw),
+            ("kermi_cop", sensors.cop),
+            ("kermi_cop_heating_avg", sensors.cop_heating_avg),
+            ("kermi_scop", sensors.scop),
             ("kermi_lifetime_electricity_kwh", sensors.lifetime_electricity_kwh),
-            ("kermi_lifetime_heat_kwh",        sensors.lifetime_heat_kwh),
-            ("kermi_electricity_heating_kwh",  sensors.electricity_heating_kwh),
-            ("kermi_electricity_dhw_kwh",      sensors.electricity_dhw_kwh),
-            ("kermi_hp_state",                 sensors.hp_state),
-            ("kermi_smart_grid_status",        sensors.smart_grid_status),
-            ("kermi_wez1_status",              sensors.wez1_status),
-            ("kermi_wez1_operating_hours",     sensors.wez1_operating_hours),
-            ("kermi_wez2_status",              sensors.wez2_status),
-            ("kermi_wez2_operating_hours",     sensors.wez2_operating_hours),
-            ("kermi_wp_return_temp",           sensors.wp_return_temp),
-            ("kermi_wp_flow_temp_lc",          sensors.wp_flow_temp_lc),
-            ("kermi_cop_heating_live",         sensors.cop_heating_live),
-            ("kermi_cop_dhw_live",             sensors.cop_dhw_live),
+            ("kermi_lifetime_heat_kwh", sensors.lifetime_heat_kwh),
+            ("kermi_electricity_heating_kwh", sensors.electricity_heating_kwh),
+            ("kermi_electricity_dhw_kwh", sensors.electricity_dhw_kwh),
+            ("kermi_hp_state", sensors.hp_state),
+            ("kermi_smart_grid_status", sensors.smart_grid_status),
+            ("kermi_wez1_status", sensors.wez1_status),
+            ("kermi_wez1_operating_hours", sensors.wez1_operating_hours),
+            ("kermi_wez2_status", sensors.wez2_status),
+            ("kermi_wez2_operating_hours", sensors.wez2_operating_hours),
+            ("kermi_wp_return_temp", sensors.wp_return_temp),
+            ("kermi_wp_flow_temp_lc", sensors.wp_flow_temp_lc),
+            ("kermi_cop_heating_live", sensors.cop_heating_live),
+            ("kermi_cop_dhw_live", sensors.cop_dhw_live),
         ]
         for uid, value in simple:
             if value is None:
@@ -470,7 +503,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
         for circuit, mode in [
             ("mk1", sensors.energy_mode_mk1),
             ("mk2", sensors.energy_mode_mk2),
-            ("hk",  sensors.energy_mode_hk),
+            ("hk", sensors.energy_mode_hk),
         ]:
             uid = f"kermi_energy_mode_{circuit}"
             if mode is None:
@@ -490,33 +523,33 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
     def _set_state_publish_sensors(self, sensors: KermiSensors) -> None:
         simple = [
-            ("sensor.kermi_outside_temp",             sensors.outside_temp),
-            ("sensor.kermi_outside_temp_avg",         sensors.outside_temp_avg),
-            ("sensor.kermi_flow_temp_mk1",            sensors.flow_temp_mk1),
-            ("sensor.kermi_flow_temp_mk2",            sensors.flow_temp_mk2),
-            ("sensor.kermi_hot_water_temp",           sensors.hot_water_temp),
-            ("sensor.kermi_buffer_temp",              sensors.buffer_temp),
-            ("sensor.kermi_heating_setpoint",         sensors.heating_setpoint),
-            ("sensor.kermi_setpoint_mk1",             sensors.setpoint_mk1),
-            ("sensor.kermi_compressor_power_kw",      sensors.compressor_power_kw),
-            ("sensor.kermi_heating_output_kw",        sensors.heating_output_kw),
-            ("sensor.kermi_cop",                      sensors.cop),
-            ("sensor.kermi_cop_heating_avg",          sensors.cop_heating_avg),
-            ("sensor.kermi_scop",                     sensors.scop),
+            ("sensor.kermi_outside_temp", sensors.outside_temp),
+            ("sensor.kermi_outside_temp_avg", sensors.outside_temp_avg),
+            ("sensor.kermi_flow_temp_mk1", sensors.flow_temp_mk1),
+            ("sensor.kermi_flow_temp_mk2", sensors.flow_temp_mk2),
+            ("sensor.kermi_hot_water_temp", sensors.hot_water_temp),
+            ("sensor.kermi_buffer_temp", sensors.buffer_temp),
+            ("sensor.kermi_heating_setpoint", sensors.heating_setpoint),
+            ("sensor.kermi_setpoint_mk1", sensors.setpoint_mk1),
+            ("sensor.kermi_compressor_power_kw", sensors.compressor_power_kw),
+            ("sensor.kermi_heating_output_kw", sensors.heating_output_kw),
+            ("sensor.kermi_cop", sensors.cop),
+            ("sensor.kermi_cop_heating_avg", sensors.cop_heating_avg),
+            ("sensor.kermi_scop", sensors.scop),
             ("sensor.kermi_lifetime_electricity_kwh", sensors.lifetime_electricity_kwh),
-            ("sensor.kermi_lifetime_heat_kwh",        sensors.lifetime_heat_kwh),
-            ("sensor.kermi_electricity_heating_kwh",  sensors.electricity_heating_kwh),
-            ("sensor.kermi_electricity_dhw_kwh",      sensors.electricity_dhw_kwh),
-            ("sensor.kermi_hp_state",                 sensors.hp_state),
-            ("sensor.kermi_smart_grid_status",        sensors.smart_grid_status),
-            ("sensor.kermi_wez1_status",              sensors.wez1_status),
-            ("sensor.kermi_wez1_operating_hours",     sensors.wez1_operating_hours),
-            ("sensor.kermi_wez2_status",              sensors.wez2_status),
-            ("sensor.kermi_wez2_operating_hours",     sensors.wez2_operating_hours),
-            ("sensor.kermi_wp_return_temp",           sensors.wp_return_temp),
-            ("sensor.kermi_wp_flow_temp_lc",          sensors.wp_flow_temp_lc),
-            ("sensor.kermi_cop_heating_live",         sensors.cop_heating_live),
-            ("sensor.kermi_cop_dhw_live",             sensors.cop_dhw_live),
+            ("sensor.kermi_lifetime_heat_kwh", sensors.lifetime_heat_kwh),
+            ("sensor.kermi_electricity_heating_kwh", sensors.electricity_heating_kwh),
+            ("sensor.kermi_electricity_dhw_kwh", sensors.electricity_dhw_kwh),
+            ("sensor.kermi_hp_state", sensors.hp_state),
+            ("sensor.kermi_smart_grid_status", sensors.smart_grid_status),
+            ("sensor.kermi_wez1_status", sensors.wez1_status),
+            ("sensor.kermi_wez1_operating_hours", sensors.wez1_operating_hours),
+            ("sensor.kermi_wez2_status", sensors.wez2_status),
+            ("sensor.kermi_wez2_operating_hours", sensors.wez2_operating_hours),
+            ("sensor.kermi_wp_return_temp", sensors.wp_return_temp),
+            ("sensor.kermi_wp_flow_temp_lc", sensors.wp_flow_temp_lc),
+            ("sensor.kermi_cop_heating_live", sensors.cop_heating_live),
+            ("sensor.kermi_cop_dhw_live", sensors.cop_dhw_live),
         ]
         for entity_id, value in simple:
             self.set_state(
@@ -546,9 +579,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
                     attributes=_ENTITY_ATTRS.get(entity_id, {}),
                 )
             else:
-                self.set_state(
-                    entity_id, state=mode.name, attributes={"mode_int": int(mode)}
-                )
+                self.set_state(entity_id, state=mode.name, attributes={"mode_int": int(mode)})
 
         # WEZ Betriebsart sensors
         for entity_id, mode in [
@@ -673,14 +704,10 @@ class KermiBridge(MQTTMixin, hass.Hass):
         try:
             shift = int(payload)
         except (TypeError, ValueError):
-            self.log(
-                f"set_heating_curve_shift: invalid payload '{payload}'", level="ERROR"
-            )
+            self.log(f"set_heating_curve_shift: invalid payload '{payload}'", level="ERROR")
             return
         if not (-5 <= shift <= 5):
-            self.log(
-                f"set_heating_curve_shift: {shift} out of range [-5, 5]", level="ERROR"
-            )
+            self.log(f"set_heating_curve_shift: {shift} out of range [-5, 5]", level="ERROR")
             return
         asyncio.run_coroutine_threadsafe(self._do_set_heating_curve_shift(shift, circuit), self._loop)
 
@@ -700,9 +727,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
     # ── Legacy service handlers ────────────────────────────────────────────────
 
-    async def _svc_set_energy_mode(
-        self, namespace, domain, service, kwargs
-    ) -> None:
+    async def _svc_set_energy_mode(self, namespace, domain, service, kwargs) -> None:
         mode_str = str(kwargs.get("mode", "NORMAL")).upper()
         mode = _ENERGY_MODE_NAMES.get(mode_str)
         if mode is None:
@@ -719,9 +744,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
         except Exception as exc:
             self.log(f"set_energy_mode failed: {exc}", level="ERROR")
 
-    async def _svc_set_dhw_setpoint(
-        self, namespace, domain, service, kwargs
-    ) -> None:
+    async def _svc_set_dhw_setpoint(self, namespace, domain, service, kwargs) -> None:
         temp = kwargs.get("temperature")
         if temp is None:
             self.log("set_dhw_setpoint: temperature is required", level="ERROR")
@@ -729,40 +752,30 @@ class KermiBridge(MQTTMixin, hass.Hass):
         try:
             temp = float(temp)
         except (TypeError, ValueError):
-            self.log(
-                f"set_dhw_setpoint: invalid temperature: {temp!r}", level="ERROR"
-            )
+            self.log(f"set_dhw_setpoint: invalid temperature: {temp!r}", level="ERROR")
             return
         if not (0 <= temp <= 85):
-            self.log(
-                f"set_dhw_setpoint: {temp} out of range [0–85]", level="ERROR"
-            )
+            self.log(f"set_dhw_setpoint: {temp} out of range [0–85]", level="ERROR")
             return
         try:
             await self._client.set_dhw_setpoint(temp)
         except KermiError as exc:
             self.log(f"set_dhw_setpoint failed: {exc}", level="ERROR")
 
-    async def _svc_trigger_dhw_oneshot(
-        self, namespace, domain, service, kwargs
-    ) -> None:
+    async def _svc_trigger_dhw_oneshot(self, namespace, domain, service, kwargs) -> None:
         try:
             await self._client.trigger_dhw_oneshot()
         except KermiError as exc:
             self.log(f"trigger_dhw_oneshot failed: {exc}", level="ERROR")
 
-    async def _svc_set_quiet_mode(
-        self, namespace, domain, service, kwargs
-    ) -> None:
+    async def _svc_set_quiet_mode(self, namespace, domain, service, kwargs) -> None:
         enabled = bool(kwargs.get("enabled", True))
         try:
             await self._client.set_quiet_mode(enabled)
         except KermiError as exc:
             self.log(f"set_quiet_mode failed: {exc}", level="ERROR")
 
-    async def _svc_set_heating_curve_shift(
-        self, namespace, domain, service, kwargs
-    ) -> None:
+    async def _svc_set_heating_curve_shift(self, namespace, domain, service, kwargs) -> None:
         if "shift" not in kwargs:
             self.log("set_heating_curve_shift: shift is required", level="ERROR")
             return
@@ -775,9 +788,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
             )
             return
         if not (-5 <= shift <= 5):
-            self.log(
-                f"set_heating_curve_shift: {shift} out of range [-5, 5]", level="ERROR"
-            )
+            self.log(f"set_heating_curve_shift: {shift} out of range [-5, 5]", level="ERROR")
             return
         circuits = kwargs.get("circuits")
         try:
@@ -785,9 +796,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
         except KermiError as exc:
             self.log(f"set_heating_curve_shift failed: {exc}", level="ERROR")
 
-    async def _svc_set_wez_mode(
-        self, namespace, domain, service, kwargs
-    ) -> None:
+    async def _svc_set_wez_mode(self, namespace, domain, service, kwargs) -> None:
         wez = kwargs.get("wez")
         if wez not in (1, 2):
             self.log(f"set_wez_mode: wez must be 1 or 2, got {wez!r}", level="ERROR")
