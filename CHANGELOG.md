@@ -7,6 +7,12 @@ Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-06-03
+
+### Fixed
+- `apps/kermi_bridge/kermi_bridge.py` — event loop captured via `asyncio.get_running_loop()` in `initialize()` and stored as `self._loop`; all 7 `_on_cmd_*` MQTT handlers now use `self._loop` instead of `asyncio.get_event_loop()`, which raises `RuntimeError` on Python 3.10+ when called from AppDaemon worker threads
+- `tests/test_kermi_bridge.py` — added `TestMqttCommandPath` class (6 tests) covering the full sync→async scheduling path through `run_coroutine_threadsafe`; fixed `TestCommandRateLimiting::test_rapid_energy_mode_cmd_rate_limited` to remove dead `get_event_loop` monkeypatch
+
 ## [0.10.3] — 2026-05-14
 
 ### Fixed

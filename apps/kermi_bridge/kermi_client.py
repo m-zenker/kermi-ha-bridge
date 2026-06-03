@@ -28,65 +28,56 @@ _LOGGER = logging.getLogger(__name__)
 _DESTINATION_ID = "00000000-0000-0000-0000-000000000000"
 
 # $type strings required by WriteValues for each Python type.
-_TYPE_BOOL = (
-    "BMS.Shared.DatapointCore.DatapointValue`1"
-    "[[System.Boolean, mscorlib]], BMS.Shared"
-)
-_TYPE_INT = (
-    "BMS.Shared.DatapointCore.DatapointValue`1"
-    "[[System.Int32, mscorlib]], BMS.Shared"
-)
-_TYPE_FLOAT = (
-    "BMS.Shared.DatapointCore.DatapointValue`1"
-    "[[System.Single, mscorlib]], BMS.Shared"
-)
+_TYPE_BOOL = "BMS.Shared.DatapointCore.DatapointValue`1[[System.Boolean, mscorlib]], BMS.Shared"
+_TYPE_INT = "BMS.Shared.DatapointCore.DatapointValue`1[[System.Int32, mscorlib]], BMS.Shared"
+_TYPE_FLOAT = "BMS.Shared.DatapointCore.DatapointValue`1[[System.Single, mscorlib]], BMS.Shared"
 
 # Datapoint GUIDs — discovered by live inspection of the x-center JS source and API.
 _DP = {
     # Monitoring
-    "hp_state":               "41258683-9b38-4065-80d2-34c9a7e6ec2c",
-    "outside_temp":           "777c1a8e-ec1c-4a15-9bcc-4ec5b8e0e4f4",
-    "outside_temp_avg":       "7b712484-4c0e-4b8d-9425-25f9f7072777",
-    "compressor_power_kw":    "3576624b-1af4-4406-8e8b-12500acd4840",
-    "heating_output_kw":      "1d86a071-53bc-4ab1-b705-1e9c7c104d02",
-    "cop":                    "34760a09-8f79-424f-a1b0-5f1a9339d864",
-    "cop_heating_avg":        "c95e6f93-eeb0-400a-a061-808c796a6739",
-    "scop":                   "6728fd40-0370-40ca-aea6-d87670224b13",
-    "flow_temp_mk1":          "4e53d1c7-f461-4e00-ad71-2e0375be8e0c",
-    "flow_temp_mk2":          "cf6fda09-6e9d-4477-b643-4839c4cc646f",
-    "hot_water_temp":         "83a34595-924a-421e-b9c1-44c2a49f97ad",
-    "buffer_temp":            "fc1c59db-33d8-41f4-afb9-0513d18e8095",
-    "heating_setpoint":       "985cce22-e260-461f-bc25-44b72a13b8f3",
-    "setpoint_mk1":           "c068737a-aca4-4084-88d9-44cfe9b72a4c",
-    "smart_grid_status":      "01abb662-cc1a-4225-a886-a9c2fa245b8d",
-    "evu_status":             "c2d20aa6-8dd4-4513-a3fa-a45ba942b3ee",
+    "hp_state": "41258683-9b38-4065-80d2-34c9a7e6ec2c",
+    "outside_temp": "777c1a8e-ec1c-4a15-9bcc-4ec5b8e0e4f4",
+    "outside_temp_avg": "7b712484-4c0e-4b8d-9425-25f9f7072777",
+    "compressor_power_kw": "3576624b-1af4-4406-8e8b-12500acd4840",
+    "heating_output_kw": "1d86a071-53bc-4ab1-b705-1e9c7c104d02",
+    "cop": "34760a09-8f79-424f-a1b0-5f1a9339d864",
+    "cop_heating_avg": "c95e6f93-eeb0-400a-a061-808c796a6739",
+    "scop": "6728fd40-0370-40ca-aea6-d87670224b13",
+    "flow_temp_mk1": "4e53d1c7-f461-4e00-ad71-2e0375be8e0c",
+    "flow_temp_mk2": "cf6fda09-6e9d-4477-b643-4839c4cc646f",
+    "hot_water_temp": "83a34595-924a-421e-b9c1-44c2a49f97ad",
+    "buffer_temp": "fc1c59db-33d8-41f4-afb9-0513d18e8095",
+    "heating_setpoint": "985cce22-e260-461f-bc25-44b72a13b8f3",
+    "setpoint_mk1": "c068737a-aca4-4084-88d9-44cfe9b72a4c",
+    "smart_grid_status": "01abb662-cc1a-4225-a886-a9c2fa245b8d",
+    "evu_status": "c2d20aa6-8dd4-4513-a3fa-a45ba942b3ee",
     "lifetime_electricity_kwh": "ac0a8989-e55d-4c8d-9550-071cfc57c01c",
-    "lifetime_heat_kwh":      "ce268bd3-8262-4926-ae2c-e73075c89167",
+    "lifetime_heat_kwh": "ce268bd3-8262-4926-ae2c-e73075c89167",
     "electricity_heating_kwh": "dbf925c9-f24e-456c-ac49-f7702adeb9d1",
-    "electricity_dhw_kwh":    "b94586b8-1a4c-4c4f-b56c-07895cb71a89",
+    "electricity_dhw_kwh": "b94586b8-1a4c-4c4f-b56c-07895cb71a89",
     # WEZ monitoring (read, level 10)
-    "wez1_status":            "7b61bd2f-3f0c-4cda-85ac-790dd3f521e8",
-    "wez1_operating_hours":   "90437f26-465c-456d-acee-fb5a911794c9",
-    "wez2_status":            "3b981e54-70b3-47be-a611-3efe66b036a3",
-    "wez2_operating_hours":   "23903818-d50d-47f2-b5ae-a0763fec44ca",
+    "wez1_status": "7b61bd2f-3f0c-4cda-85ac-790dd3f521e8",
+    "wez1_operating_hours": "90437f26-465c-456d-acee-fb5a911794c9",
+    "wez2_status": "3b981e54-70b3-47be-a611-3efe66b036a3",
+    "wez2_operating_hours": "23903818-d50d-47f2-b5ae-a0763fec44ca",
     # WEZ control (read/write, level 10)
-    "wez1_betriebsart":       "baf5cfb8-940c-48cf-8a4f-506a5f78d336",
-    "wez2_betriebsart":       "dfb042d3-8f06-41a2-9ba3-2df0660f5ed2",
+    "wez1_betriebsart": "baf5cfb8-940c-48cf-8a4f-506a5f78d336",
+    "wez2_betriebsart": "dfb042d3-8f06-41a2-9ba3-2df0660f5ed2",
     # WEZ monitoring (read, level 10) — additional sensors
-    "wp_return_temp":         "6ca1372b-894d-4f27-add3-257fff9905c1",
-    "wp_flow_temp_lc":        "6576ccc5-048a-482e-ac0d-ef4dc0de16c4",
-    "cop_heating_live":       "cd908274-744c-45db-8ad2-564a4f81b210",
-    "cop_dhw_live":           "5d8bd3ad-7bf4-41ff-8883-82f0d5bc3548",
+    "wp_return_temp": "6ca1372b-894d-4f27-add3-257fff9905c1",
+    "wp_flow_temp_lc": "6576ccc5-048a-482e-ac0d-ef4dc0de16c4",
+    "cop_heating_live": "cd908274-744c-45db-8ad2-564a4f81b210",
+    "cop_dhw_live": "5d8bd3ad-7bf4-41ff-8883-82f0d5bc3548",
     # Control (writable at user level 10)
-    "energy_mode_mk1":        "6879e0cf-d7d2-4809-8a72-f82dec836f19",
-    "energy_mode_mk2":        "adeda139-96e1-47f6-b3bd-025bb0f40e28",
-    "energy_mode_hk":         "836b65fd-0cc7-4232-9b49-d87fdbf425ad",
-    "dhw_setpoint":           "ca4dd370-2cd7-4a6b-b091-f9df74150265",  # float °C [0–85]
-    "dhw_oneshot_trigger":    "2c2d38d5-ce4c-4195-9338-3081eb6987a4",  # bool (write True)
-    "quiet_mode":             "8b94090b-4115-44b0-98f1-4cceab305488",  # bool
+    "energy_mode_mk1": "6879e0cf-d7d2-4809-8a72-f82dec836f19",
+    "energy_mode_mk2": "adeda139-96e1-47f6-b3bd-025bb0f40e28",
+    "energy_mode_hk": "836b65fd-0cc7-4232-9b49-d87fdbf425ad",
+    "dhw_setpoint": "ca4dd370-2cd7-4a6b-b091-f9df74150265",  # float °C [0–85]
+    "dhw_oneshot_trigger": "2c2d38d5-ce4c-4195-9338-3081eb6987a4",  # bool (write True)
+    "quiet_mode": "8b94090b-4115-44b0-98f1-4cceab305488",  # bool
     "heating_curve_shift_mk1": "ed643ada-7265-43b3-b6aa-13bcc08ed53e",  # int [-5, +5]
     "heating_curve_shift_mk2": "3ea5f70b-d320-4592-8b19-06a8e3d26b53",
-    "heating_curve_shift_hk":  "04ba9dab-2dd7-4bc3-9b42-d0a5a8d7c5f9",
+    "heating_curve_shift_hk": "04ba9dab-2dd7-4bc3-9b42-d0a5a8d7c5f9",
 }
 
 _WEZ_TO_BETRIEBSART_DP = {1: "wez1_betriebsart", 2: "wez2_betriebsart"}
@@ -94,52 +85,75 @@ _WEZ_TO_BETRIEBSART_DP = {1: "wez1_betriebsart", 2: "wez2_betriebsart"}
 _CIRCUIT_TO_MODE_DP = {
     "MK1": "energy_mode_mk1",
     "MK2": "energy_mode_mk2",
-    "HK":  "energy_mode_hk",
+    "HK": "energy_mode_hk",
 }
 
 _CIRCUIT_TO_CURVE_DP = {
     "MK1": "heating_curve_shift_mk1",
     "MK2": "heating_curve_shift_mk2",
-    "HK":  "heating_curve_shift_hk",
+    "HK": "heating_curve_shift_hk",
 }
 
 _READ_DATAPOINTS = [
-    "hp_state", "outside_temp", "outside_temp_avg",
-    "compressor_power_kw", "heating_output_kw",
-    "cop", "cop_heating_avg", "scop",
-    "flow_temp_mk1", "flow_temp_mk2",
-    "hot_water_temp", "buffer_temp",
-    "heating_setpoint", "setpoint_mk1",
-    "smart_grid_status", "evu_status",
-    "lifetime_electricity_kwh", "lifetime_heat_kwh",
-    "electricity_heating_kwh", "electricity_dhw_kwh",
-    "energy_mode_mk1", "energy_mode_mk2", "energy_mode_hk",
-    "wez1_status", "wez1_operating_hours", "wez1_betriebsart",
-    "wez2_status", "wez2_operating_hours", "wez2_betriebsart",
-    "wp_return_temp", "wp_flow_temp_lc", "cop_heating_live", "cop_dhw_live",
+    "hp_state",
+    "outside_temp",
+    "outside_temp_avg",
+    "compressor_power_kw",
+    "heating_output_kw",
+    "cop",
+    "cop_heating_avg",
+    "scop",
+    "flow_temp_mk1",
+    "flow_temp_mk2",
+    "hot_water_temp",
+    "buffer_temp",
+    "heating_setpoint",
+    "setpoint_mk1",
+    "smart_grid_status",
+    "evu_status",
+    "lifetime_electricity_kwh",
+    "lifetime_heat_kwh",
+    "electricity_heating_kwh",
+    "electricity_dhw_kwh",
+    "energy_mode_mk1",
+    "energy_mode_mk2",
+    "energy_mode_hk",
+    "wez1_status",
+    "wez1_operating_hours",
+    "wez1_betriebsart",
+    "wez2_status",
+    "wez2_operating_hours",
+    "wez2_betriebsart",
+    "wp_return_temp",
+    "wp_flow_temp_lc",
+    "cop_heating_live",
+    "cop_dhw_live",
 ]
 
 
 class EnergyMode(IntEnum):
     """Heat pump energy mode — controls setpoint offset per heating circuit."""
-    OFF     = 0  # Circuit disabled
-    ECO     = 1  # Default efficiency mode (0 K offset)
-    NORMAL  = 2  # Normal operation (0 K offset)
+
+    OFF = 0  # Circuit disabled
+    ECO = 1  # Default efficiency mode (0 K offset)
+    NORMAL = 2  # Normal operation (0 K offset)
     COMFORT = 3  # Solar surplus mode (+2 K offset, absorbs more heat)
-    CUSTOM  = 4  # User-defined offset (configured on device)
+    CUSTOM = 4  # User-defined offset (configured on device)
 
 
 class WezMode(IntEnum):
     """Betriebsart for an external heat generator (WEZ)."""
-    AUTO      = 0  # Heat pump decides automatically
-    HP_ONLY   = 1  # Heat pump only — WEZ blocked
-    BOTH      = 2  # HP + WEZ both permitted (parallel bivalent)
+
+    AUTO = 0  # Heat pump decides automatically
+    HP_ONLY = 1  # Heat pump only — WEZ blocked
+    BOTH = 2  # HP + WEZ both permitted (parallel bivalent)
     SECONDARY = 3  # WEZ as backup when HP is insufficient
 
 
 @dataclass
 class KermiSensors:
     """Snapshot of heat pump sensor values from a single ReadValues call."""
+
     # Temperatures (°C)
     outside_temp: float | None = None
     outside_temp_avg: float | None = None
@@ -269,15 +283,22 @@ class KermiClient:
         Returns:
             A :class:`KermiSensors` dataclass populated from the device response.
         """
+        data = await self.read_sensors_raw()
+        return self._parse_sensors(data)
+
+    async def read_sensors_raw(self) -> dict:
+        """Return the raw ReadValues API response without parsing.
+
+        Useful for diagnostics: the response reveals whether datapoint GUIDs
+        match and what the device actually returns.
+        """
         await self._ensure_connected()
         payload = {
             "DatapointValues": [
-                {"DatapointConfigId": _DP[name], "DeviceId": self._device_id}
-                for name in _READ_DATAPOINTS
+                {"DatapointConfigId": _DP[name], "DeviceId": self._device_id} for name in _READ_DATAPOINTS
             ]
         }
-        data = await self._post("Datapoint/ReadValues", payload)
-        return self._parse_sensors(data)
+        return await self._post("Datapoint/ReadValues", payload)
 
     async def set_energy_mode(
         self,
@@ -313,8 +334,7 @@ class KermiClient:
         data = await self._post("Datapoint/WriteValues", payload)
         if data.get("StatusCode", 1) != 0:
             raise KermiWriteError(
-                f"WriteValues failed: {data.get('DisplayText')} "
-                f"({(data.get('ExceptionData') or {}).get('ErrorCode')})"
+                f"WriteValues failed: {data.get('DisplayText')} ({(data.get('ExceptionData') or {}).get('ErrorCode')})"
             )
         _LOGGER.debug("Kermi: EnergyMode set to %s for circuits %s", mode.name, circuits)
 
@@ -341,8 +361,7 @@ class KermiClient:
         data = await self._post("Datapoint/WriteValues", payload)
         if data.get("StatusCode", 1) != 0:
             raise KermiWriteError(
-                f"WriteValues failed: {data.get('DisplayText')} "
-                f"({(data.get('ExceptionData') or {}).get('ErrorCode')})"
+                f"WriteValues failed: {data.get('DisplayText')} ({(data.get('ExceptionData') or {}).get('ErrorCode')})"
             )
         _LOGGER.debug("Kermi: WEZ%d Betriebsart set to %s", wez, mode.name)
 
@@ -368,8 +387,7 @@ class KermiClient:
         data = await self._post("Datapoint/WriteValues", payload)
         if data.get("StatusCode", 1) != 0:
             raise KermiWriteError(
-                f"WriteValues failed: {data.get('DisplayText')} "
-                f"({(data.get('ExceptionData') or {}).get('ErrorCode')})"
+                f"WriteValues failed: {data.get('DisplayText')} ({(data.get('ExceptionData') or {}).get('ErrorCode')})"
             )
         _LOGGER.debug("Kermi: DHW setpoint set to %s°C", temp)
 
@@ -389,8 +407,7 @@ class KermiClient:
         data = await self._post("Datapoint/WriteValues", payload)
         if data.get("StatusCode", 1) != 0:
             raise KermiWriteError(
-                f"WriteValues failed: {data.get('DisplayText')} "
-                f"({(data.get('ExceptionData') or {}).get('ErrorCode')})"
+                f"WriteValues failed: {data.get('DisplayText')} ({(data.get('ExceptionData') or {}).get('ErrorCode')})"
             )
         _LOGGER.debug("Kermi: DHW oneshot triggered")
 
@@ -414,8 +431,7 @@ class KermiClient:
         data = await self._post("Datapoint/WriteValues", payload)
         if data.get("StatusCode", 1) != 0:
             raise KermiWriteError(
-                f"WriteValues failed: {data.get('DisplayText')} "
-                f"({(data.get('ExceptionData') or {}).get('ErrorCode')})"
+                f"WriteValues failed: {data.get('DisplayText')} ({(data.get('ExceptionData') or {}).get('ErrorCode')})"
             )
         _LOGGER.debug("Kermi: quiet mode set to %s", enabled)
 
@@ -455,8 +471,7 @@ class KermiClient:
         data = await self._post("Datapoint/WriteValues", payload)
         if data.get("StatusCode", 1) != 0:
             raise KermiWriteError(
-                f"WriteValues failed: {data.get('DisplayText')} "
-                f"({(data.get('ExceptionData') or {}).get('ErrorCode')})"
+                f"WriteValues failed: {data.get('DisplayText')} ({(data.get('ExceptionData') or {}).get('ErrorCode')})"
             )
         _LOGGER.debug("Kermi: heating curve shift set to %s for circuits %s", shift, circuits)
 

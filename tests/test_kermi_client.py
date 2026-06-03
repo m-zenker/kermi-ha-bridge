@@ -7,8 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
-
-from apps.kermi_bridge.kermi_client import (
+from kermi_bridge.kermi_client import (
     _DP,
     _TYPE_BOOL,
     _TYPE_FLOAT,
@@ -49,10 +48,7 @@ DEVICE_ID = "67b4e4ca-df6e-4fb4-8107-f5a35df73981"
 def _make_read_response(values: dict[str, Any]) -> dict:
     """Build a ReadValues ResponseData payload from {dp_name: value} dict."""
     return {
-        "ResponseData": [
-            {"DatapointConfigId": _DP[name], "Value": value}
-            for name, value in values.items()
-        ],
+        "ResponseData": [{"DatapointConfigId": _DP[name], "Value": value} for name, value in values.items()],
         "StatusCode": 0,
     }
 
@@ -106,6 +102,7 @@ def _client_with_session(session: _FakeSession, device_id: str | None = None) ->
 
 # ── Login / connect ───────────────────────────────────────────────────────────
 
+
 class TestConnect:
     @pytest.mark.asyncio
     async def test_connect_creates_session_with_unsafe_cookie_jar(self):
@@ -142,8 +139,8 @@ class TestConnect:
     @pytest.mark.asyncio
     async def test_connect_login_and_discover_device(self):
         session = _FakeSession(
-            post=[_mock_response(LOGIN_OK)],        # POST Security/Login
-            get=[_mock_response(DEVICES_RESPONSE)], # GET Device/GetAllDevices
+            post=[_mock_response(LOGIN_OK)],  # POST Security/Login
+            get=[_mock_response(DEVICES_RESPONSE)],  # GET Device/GetAllDevices
         )
         client = _client_with_session(session)
         await client.connect()
@@ -186,34 +183,37 @@ class TestConnect:
 
 # ── read_sensors ─────────────────────────────────────────────────────────────
 
+
 class TestReadSensors:
     @pytest.mark.asyncio
     async def test_returns_correct_sensor_values(self):
-        read_body = _make_read_response({
-            "outside_temp": 8.1,
-            "outside_temp_avg": 8.1,
-            "flow_temp_mk1": 37.5,
-            "flow_temp_mk2": 36.0,
-            "hot_water_temp": 50.3,
-            "buffer_temp": 39.6,
-            "heating_setpoint": 35.0,
-            "setpoint_mk1": 35.0,
-            "compressor_power_kw": 0.0,
-            "heating_output_kw": 0.0,
-            "cop": 4.32,
-            "cop_heating_avg": 4.36,
-            "scop": 4.31,
-            "lifetime_electricity_kwh": 10160.0,
-            "lifetime_heat_kwh": 43854.0,
-            "electricity_heating_kwh": 8886.0,
-            "electricity_dhw_kwh": 1282.0,
-            "hp_state": 1,
-            "smart_grid_status": 2,
-            "evu_status": False,
-            "energy_mode_mk1": 1,
-            "energy_mode_mk2": 1,
-            "energy_mode_hk": 1,
-        })
+        read_body = _make_read_response(
+            {
+                "outside_temp": 8.1,
+                "outside_temp_avg": 8.1,
+                "flow_temp_mk1": 37.5,
+                "flow_temp_mk2": 36.0,
+                "hot_water_temp": 50.3,
+                "buffer_temp": 39.6,
+                "heating_setpoint": 35.0,
+                "setpoint_mk1": 35.0,
+                "compressor_power_kw": 0.0,
+                "heating_output_kw": 0.0,
+                "cop": 4.32,
+                "cop_heating_avg": 4.36,
+                "scop": 4.31,
+                "lifetime_electricity_kwh": 10160.0,
+                "lifetime_heat_kwh": 43854.0,
+                "electricity_heating_kwh": 8886.0,
+                "electricity_dhw_kwh": 1282.0,
+                "hp_state": 1,
+                "smart_grid_status": 2,
+                "evu_status": False,
+                "energy_mode_mk1": 1,
+                "energy_mode_mk2": 1,
+                "energy_mode_hk": 1,
+            }
+        )
         session = _FakeSession(post=[_mock_response(read_body)])
         client = _client_with_session(session, device_id=DEVICE_ID)
         client._connected = True
@@ -263,6 +263,7 @@ class TestReadSensors:
 
 
 # ── set_energy_mode ───────────────────────────────────────────────────────────
+
 
 class TestSetEnergyMode:
     @pytest.mark.asyncio
@@ -342,6 +343,7 @@ class TestSetEnergyMode:
 
 # ── 401 re-auth ───────────────────────────────────────────────────────────────
 
+
 class TestReAuth:
     @pytest.mark.asyncio
     async def test_reconnects_on_401_and_retries(self):
@@ -367,11 +369,11 @@ class TestReAuth:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return cm_401      # First call: 401
+                return cm_401  # First call: 401
             elif call_count == 2:
-                return cm_login    # Re-login
+                return cm_login  # Re-login
             else:
-                return cm_retry    # Retry of original request
+                return cm_retry  # Retry of original request
 
         session = MagicMock()
         session.closed = False
@@ -426,13 +428,14 @@ class TestReAuth:
 
 # ── EnergyMode enum ───────────────────────────────────────────────────────────
 
+
 class TestEnergyModeEnum:
     def test_values(self):
-        assert EnergyMode.OFF     == 0
-        assert EnergyMode.ECO     == 1
-        assert EnergyMode.NORMAL  == 2
+        assert EnergyMode.OFF == 0
+        assert EnergyMode.ECO == 1
+        assert EnergyMode.NORMAL == 2
         assert EnergyMode.COMFORT == 3
-        assert EnergyMode.CUSTOM  == 4
+        assert EnergyMode.CUSTOM == 4
 
     def test_roundtrip_from_int(self):
         assert EnergyMode(3) == EnergyMode.COMFORT
@@ -443,6 +446,7 @@ class TestEnergyModeEnum:
 
 
 # ── set_dhw_setpoint ──────────────────────────────────────────────────────────
+
 
 class TestSetDhwSetpoint:
     def _make_client(self, write_body: dict) -> tuple[KermiClient, MagicMock]:
@@ -498,6 +502,7 @@ class TestSetDhwSetpoint:
 
 # ── trigger_dhw_oneshot ───────────────────────────────────────────────────────
 
+
 class TestTriggerDhwOneshot:
     def _make_client(self, write_body: dict) -> tuple[KermiClient, MagicMock]:
         cm = MagicMock()
@@ -530,6 +535,7 @@ class TestTriggerDhwOneshot:
 
 
 # ── set_quiet_mode ────────────────────────────────────────────────────────────
+
 
 class TestSetQuietMode:
     def _make_client(self, write_body: dict) -> tuple[KermiClient, MagicMock]:
@@ -571,6 +577,7 @@ class TestSetQuietMode:
 
 
 # ── set_heating_curve_shift ───────────────────────────────────────────────────
+
 
 class TestSetHeatingCurveShift:
     def _make_client(self, write_body: dict) -> tuple[KermiClient, MagicMock]:
@@ -631,11 +638,12 @@ class TestSetHeatingCurveShift:
 
 # ── WezMode enum ──────────────────────────────────────────────────────────────
 
+
 class TestWezModeEnum:
     def test_values(self):
-        assert WezMode.AUTO      == 0
-        assert WezMode.HP_ONLY   == 1
-        assert WezMode.BOTH      == 2
+        assert WezMode.AUTO == 0
+        assert WezMode.HP_ONLY == 1
+        assert WezMode.BOTH == 2
         assert WezMode.SECONDARY == 3
 
     def test_roundtrip_from_int(self):
@@ -648,18 +656,21 @@ class TestWezModeEnum:
 
 # ── WEZ field parsing ─────────────────────────────────────────────────────────
 
+
 class TestReadSensorsWez:
     @pytest.mark.asyncio
     async def test_returns_wez_sensor_values(self):
-        read_body = _make_read_response({
-            "outside_temp": 5.0,
-            "wez1_status": 1,
-            "wez1_operating_hours": 786.5,
-            "wez1_betriebsart": 0,
-            "wez2_status": 0,
-            "wez2_operating_hours": 0.0,
-            "wez2_betriebsart": 2,
-        })
+        read_body = _make_read_response(
+            {
+                "outside_temp": 5.0,
+                "wez1_status": 1,
+                "wez1_operating_hours": 786.5,
+                "wez1_betriebsart": 0,
+                "wez2_status": 0,
+                "wez2_operating_hours": 0.0,
+                "wez2_betriebsart": 2,
+            }
+        )
         session = _FakeSession(post=[_mock_response(read_body)])
         client = _client_with_session(session, device_id=DEVICE_ID)
         client._connected = True
@@ -703,16 +714,19 @@ class TestReadSensorsWez:
 
 # ── New monitoring sensors (WP return temp, flow LC, COP live) ────────────────
 
+
 class TestReadSensorsNewFields:
     @pytest.mark.asyncio
     async def test_returns_new_sensor_values(self):
         """New sensors: wp_return_temp, wp_flow_temp_lc, cop_heating_live, cop_dhw_live."""
-        read_body = _make_read_response({
-            "wp_return_temp": 38.5,
-            "wp_flow_temp_lc": 42.1,
-            "cop_heating_live": 3.8,
-            "cop_dhw_live": 2.9,
-        })
+        read_body = _make_read_response(
+            {
+                "wp_return_temp": 38.5,
+                "wp_flow_temp_lc": 42.1,
+                "cop_heating_live": 3.8,
+                "cop_dhw_live": 2.9,
+            }
+        )
         session = _FakeSession(post=[_mock_response(read_body)])
         client = _client_with_session(session, device_id=DEVICE_ID)
         client._connected = True
@@ -742,10 +756,12 @@ class TestReadSensorsNewFields:
     @pytest.mark.asyncio
     async def test_cop_zero_is_valid_not_none(self):
         """COP value of 0.0 is valid (not suppressed to None)."""
-        read_body = _make_read_response({
-            "cop_heating_live": 0.0,
-            "cop_dhw_live": 0.0,
-        })
+        read_body = _make_read_response(
+            {
+                "cop_heating_live": 0.0,
+                "cop_dhw_live": 0.0,
+            }
+        )
         session = _FakeSession(post=[_mock_response(read_body)])
         client = _client_with_session(session, device_id=DEVICE_ID)
         client._connected = True
@@ -757,6 +773,7 @@ class TestReadSensorsNewFields:
 
 
 # ── set_wez_mode ──────────────────────────────────────────────────────────────
+
 
 class TestSetWezMode:
     def _make_client(self, write_body: dict) -> tuple[KermiClient, MagicMock]:
