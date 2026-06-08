@@ -446,9 +446,12 @@ class KermiClient:
         await self._ensure_connected()
         payload = {
             "DatapointValues": [
-                {"DatapointConfigId": _DP[name], "DeviceId": self._device_id}
+                {
+                    "DatapointConfigId": self._dp[name],
+                    "DeviceId": self._device_for(name),
+                }
                 for name in _READ_DATAPOINTS
-                if _DP.get(name) is not None
+                if self._dp.get(name) is not None
             ]
         }
         return await self._post("Datapoint/ReadValues", payload)
@@ -477,8 +480,8 @@ class KermiClient:
             "DatapointValues": [
                 {
                     "$type": _TYPE_INT,
-                    "DatapointConfigId": _DP[_CIRCUIT_TO_MODE_DP[c]],
-                    "DeviceId": self._device_id,
+                    "DatapointConfigId": self._dp[_CIRCUIT_TO_MODE_DP[c]],
+                    "DeviceId": self._device_for(_CIRCUIT_TO_MODE_DP[c]),
                     "Value": int(mode),
                 }
                 for c in circuits
@@ -505,8 +508,8 @@ class KermiClient:
             "DatapointValues": [
                 {
                     "$type": _TYPE_INT,
-                    "DatapointConfigId": _DP[_WEZ_TO_BETRIEBSART_DP[wez]],
-                    "DeviceId": self._device_id,
+                    "DatapointConfigId": self._dp[_WEZ_TO_BETRIEBSART_DP[wez]],
+                    "DeviceId": self._device_for(_WEZ_TO_BETRIEBSART_DP[wez]),
                     "Value": int(mode),
                 }
             ]
@@ -531,8 +534,8 @@ class KermiClient:
             "DatapointValues": [
                 {
                     "$type": _TYPE_FLOAT,
-                    "DatapointConfigId": _DP["dhw_setpoint"],
-                    "DeviceId": self._device_id,
+                    "DatapointConfigId": self._dp["dhw_setpoint"],
+                    "DeviceId": self._device_for("dhw_setpoint"),
                     "Value": float(temp),
                 }
             ]
@@ -551,8 +554,8 @@ class KermiClient:
             "DatapointValues": [
                 {
                     "$type": _TYPE_BOOL,
-                    "DatapointConfigId": _DP["dhw_oneshot_trigger"],
-                    "DeviceId": self._device_id,
+                    "DatapointConfigId": self._dp["dhw_oneshot_trigger"],
+                    "DeviceId": self._device_for("dhw_oneshot_trigger"),
                     "Value": True,
                 }
             ]
@@ -575,8 +578,8 @@ class KermiClient:
             "DatapointValues": [
                 {
                     "$type": _TYPE_BOOL,
-                    "DatapointConfigId": _DP["quiet_mode"],
-                    "DeviceId": self._device_id,
+                    "DatapointConfigId": self._dp["quiet_mode"],
+                    "DeviceId": self._device_for("quiet_mode"),
                     "Value": bool(enabled),
                 }
             ]
@@ -614,8 +617,8 @@ class KermiClient:
             "DatapointValues": [
                 {
                     "$type": _TYPE_INT,
-                    "DatapointConfigId": _DP[_CIRCUIT_TO_CURVE_DP[c]],
-                    "DeviceId": self._device_id,
+                    "DatapointConfigId": self._dp[_CIRCUIT_TO_CURVE_DP[c]],
+                    "DeviceId": self._device_for(_CIRCUIT_TO_CURVE_DP[c]),
                     "Value": int(shift),
                 }
                 for c in circuits
@@ -675,17 +678,14 @@ class KermiClient:
         except aiohttp.ClientError as exc:
             raise KermiConnectionError(f"POST {endpoint} failed: {exc}") from exc
 
-    @staticmethod
-    def _parse_sensors(response: dict) -> KermiSensors:
+    def _parse_sensors(self, response: dict) -> KermiSensors:
         """Build a :class:`KermiSensors` from a ReadValues response dict."""
         items: list[dict] = response.get("ResponseData") or []
         by_config_id = {item["DatapointConfigId"]: item.get("Value") for item in items}
 
         def _get(name: str) -> Any:
-            dp_guid = _DP.get(name)
-            if dp_guid is None:
-                return None
-            return by_config_id.get(dp_guid)
+            guid = self._dp.get(name)
+            return by_config_id.get(guid) if guid else None
 
         def _float(name: str) -> float | None:
             v = _get(name)
