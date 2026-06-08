@@ -80,6 +80,58 @@ _DP = {
     "heating_curve_shift_hk": "04ba9dab-2dd7-4bc3-9b42-d0a5a8d7c5f9",
 }
 
+# WellKnownName aliases per dp_key, priority order (first match in live catalogue wins).
+# Classic firmware uses HP_* names; Rubin/BufferSystem firmware uses Rubin_*/BufferSystem_* names.
+# Empty list = no WKN known; hardcoded GUID is kept as-is.
+_DP_TO_WKN: dict[str, list[str]] = {
+    "hp_state": ["HP_HeatpumpState", "Rubin_CombinedHeatpumpState"],
+    "outside_temp": ["VolWo_Temperature_Sensor_S1_Value", "Aussentemperatur"],
+    "outside_temp_avg": ["Aussentemperatur_gemittelt"],
+    "compressor_power_kw": ["HP_AktuelleMotorleistungKW", "Rubin_CurrentPowerInverter"],
+    "heating_output_kw": ["HP_HeatOutput", "Rubin_CalculatedPowerHeating"],
+    "cop": ["HP_TotalCOP", "Rubin_CurrentCOP"],
+    "cop_heating_avg": ["HP_HeatingWaterAverageCOP"],
+    "scop": ["HP_SCOPGesamt"],
+    "flow_temp_mk1": ["HP_MK1IstTemp"],
+    "flow_temp_mk2": ["HP_MK2IstTemp"],
+    "hot_water_temp": ["HP_TWETempIst", "BufferSystem_TweTemperatureActual"],
+    "buffer_temp": ["HP_IstTempHW", "BufferSystem_HeatingTemperatureActual"],
+    "heating_setpoint": ["HP_HeizwasserSollwertPanel", "BufferSystem_HeatingSetpoint"],
+    "setpoint_mk1": ["HP_MK1SollTempPanel"],
+    "smart_grid_status": ["HP_SmartGridStatus", "Rubin_PvIsActive"],
+    "evu_status": [],
+    "lifetime_electricity_kwh": ["HP_StrommengeGesamt"],
+    "lifetime_heat_kwh": ["HP_WaermemengeGesamt"],
+    "electricity_heating_kwh": ["HP_HeatingWaterElectricalEnergy"],
+    "electricity_dhw_kwh": ["HP_HotWaterElectricalEnergy"],
+    "wez1_status": [],
+    "wez1_operating_hours": ["X_Hours_Complete_H01"],
+    "wez2_status": [],
+    "wez2_operating_hours": ["X_Hours_Complete_Heatersys"],
+    "wez1_betriebsart": ["HP_BivBWBivalenceControl"],
+    "wez2_betriebsart": ["HP_BivHZBivalenceControl"],
+    "wp_return_temp": ["HP_EinlasstempLadekreis", "Rubin_SecondaryInletTemp"],
+    "wp_flow_temp_lc": ["HP_AuslasstempLadekreis", "Rubin_SecondaryOutletTemp"],
+    "cop_heating_live": ["HP_HeatingWaterCOP", "Rubin_CurrentCOPHeating"],
+    "cop_dhw_live": ["HP_HotWaterCOP", "Rubin_CurrentCOPTwe"],
+    "energy_mode_mk1": ["HP_EnergyModeHk1"],
+    "energy_mode_mk2": ["HP_EnergyModeHk2"],
+    "energy_mode_hk": ["HP_EnergyModeHk3"],
+    "dhw_setpoint": ["HP_TWESoll", "BufferSystem_TweSetpoint"],
+    "dhw_oneshot_trigger": ["HP_EinmalTWEPanel", "BufferSystem_OneTimeTwe"],
+    "quiet_mode": ["HP_LowNoise"],
+    "heating_curve_shift_mk1": ["HPxyz_TemperatureAdjustMk1"],
+    "heating_curve_shift_mk2": ["HPxyz_TemperatureAdjustMk2"],
+    "heating_curve_shift_hk": ["HPxyz_TemperatureAdjustMk3"],
+    # Rubin-only — no classic firmware equivalent; absent from _DP
+    "is_defrosting": ["Rubin_IsDefrosting"],
+    "compressor_hours": ["Rubin_OperationHoursCompressor"],
+    "modulation_pct": ["Rubin_CurrentOutputCapacityHeating"],
+    "temp_spread": ["Rubin_TemperatureSpreadHeating"],
+    "pv_available_power": ["Rubin_PvAvailablePower"],
+    "heater_power": ["BufferSystem_HeaterElectricalPower"],
+}
+
 _WEZ_TO_BETRIEBSART_DP = {1: "wez1_betriebsart", 2: "wez2_betriebsart"}
 
 _CIRCUIT_TO_MODE_DP = {
@@ -128,6 +180,13 @@ _READ_DATAPOINTS = [
     "wp_flow_temp_lc",
     "cop_heating_live",
     "cop_dhw_live",
+    # Rubin-only — present in self._dp only when resolved via WKN
+    "is_defrosting",
+    "compressor_hours",
+    "modulation_pct",
+    "temp_spread",
+    "pv_available_power",
+    "heater_power",
 ]
 
 
@@ -195,6 +254,13 @@ class KermiSensors:
     wp_flow_temp_lc: float | None = None
     cop_heating_live: float | None = None
     cop_dhw_live: float | None = None
+    # Rubin-only sensors (None on classic firmware)
+    is_defrosting: bool | None = None
+    compressor_hours: float | None = None
+    modulation_pct: float | None = None
+    temp_spread: float | None = None
+    pv_available_power: float | None = None
+    heater_power: float | None = None
     # Metadata
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -240,6 +306,9 @@ class KermiClient:
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._session: aiohttp.ClientSession | None = None
         self._connected = False
+        self._dp: dict[str, str] = dict(_DP)  # per-instance; patched by _resolve_guids()
+        self._dp_dtype: dict[str, int] = {}  # dp_key → DeviceType (set at connect)
+        self._dtype_device: dict[int, str] = {}  # DeviceType → first DeviceId (set at connect)
 
     # ── Context manager ───────────────────────────────────────────────────────
 
@@ -253,15 +322,39 @@ class KermiClient:
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def connect(self) -> None:
-        """Open an aiohttp session and authenticate."""
+        """Open an aiohttp session, authenticate, discover devices, and resolve GUIDs."""
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
                 timeout=self._timeout,
                 cookie_jar=aiohttp.CookieJar(unsafe=True),
             )
         await self._login()
+        devices = await self._get("Device/GetAllDevices")
+
+        # Build DeviceType → first DeviceId map for all non-home-server devices.
+        self._dp = dict(_DP)
+        self._dp_dtype = {}
+        self._dtype_device = {}
+        for device in devices:
+            dtype = device.get("DeviceType", 0)
+            if dtype != 0:
+                self._dtype_device.setdefault(dtype, device["DeviceId"])
+
+        # Discover primary device_id if not provided by caller.
         if self._device_id is None:
-            self._device_id = await self._discover_device_id()
+            for device in devices:
+                if device.get("DeviceType", 0) != 0:
+                    self._device_id = device["DeviceId"]
+                    _LOGGER.debug(
+                        "Kermi: discovered device_id=%s (%s)",
+                        self._device_id,
+                        device.get("Name"),
+                    )
+                    break
+            if self._device_id is None:
+                raise KermiConnectionError("No heat pump device found via GetAllDevices")
+
+        await self._resolve_guids(devices)
         self._connected = True
         _LOGGER.debug("Kermi: connected to %s, device_id=%s", self._base, self._device_id)
 
@@ -274,6 +367,64 @@ class KermiClient:
                 pass
             await self._session.close()
         self._connected = False
+
+    async def _resolve_guids(self, devices: list[dict]) -> None:
+        """Patch self._dp with live GUIDs from GetConfigsByDeviceType.
+
+        Iterates every non-home-server DeviceType, fetches its datapoint catalogue,
+        builds a WKN→(GUID, DeviceType) map, then overwrites self._dp entries for any
+        dp_key whose WKN candidate list has a match. Failures are non-fatal.
+        """
+        try:
+            dtypes = sorted({d.get("DeviceType", 0) for d in devices} - {0})
+            wkn_to_guid: dict[str, str] = {}
+            wkn_to_dtype: dict[str, int] = {}
+
+            for dtype in dtypes:
+                try:
+                    data = await self._post("Datapoint/GetConfigsByDeviceType", {"DeviceType": dtype})
+                    configs = data.get("ResponseData") or []
+                except KermiError as exc:
+                    _LOGGER.warning("Kermi: GetConfigsByDeviceType(%s) failed: %s", dtype, exc)
+                    continue
+                for cfg in configs:
+                    wkn = cfg.get("WellKnownName")
+                    guid = cfg.get("DatapointConfigId")
+                    if wkn and guid:
+                        wkn_to_guid[wkn] = guid.lower()
+                        wkn_to_dtype[wkn] = dtype
+
+            resolved = 0
+            for dp_key, wkns in _DP_TO_WKN.items():
+                for wkn in wkns:
+                    if wkn in wkn_to_guid:
+                        live_guid = wkn_to_guid[wkn]
+                        old_guid = self._dp.get(dp_key)
+                        if old_guid != live_guid:
+                            _LOGGER.debug(
+                                "Kermi: GUID resolved %s: %s -> %s (WKN: %s)",
+                                dp_key,
+                                old_guid or "(new)",
+                                live_guid,
+                                wkn,
+                            )
+                        self._dp[dp_key] = live_guid
+                        self._dp_dtype[dp_key] = wkn_to_dtype[wkn]
+                        resolved += 1
+                        break
+
+            _LOGGER.info(
+                "Kermi: WKN resolution complete — %d/%d datapoints resolved from live catalogue",
+                resolved,
+                len(_DP_TO_WKN),
+            )
+        except Exception as exc:
+            _LOGGER.warning("Kermi: WKN GUID resolution failed (%s) — using hardcoded GUIDs", exc)
+
+    def _device_for(self, dp_key: str) -> str:
+        """Return the DeviceId that owns dp_key, falling back to the primary device."""
+        dtype = self._dp_dtype.get(dp_key)
+        return self._dtype_device.get(dtype, self._device_id) if dtype else self._device_id
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -295,7 +446,12 @@ class KermiClient:
         await self._ensure_connected()
         payload = {
             "DatapointValues": [
-                {"DatapointConfigId": _DP[name], "DeviceId": self._device_id} for name in _READ_DATAPOINTS
+                {
+                    "DatapointConfigId": self._dp[name],
+                    "DeviceId": self._device_for(name),
+                }
+                for name in _READ_DATAPOINTS
+                if self._dp.get(name) is not None
             ]
         }
         return await self._post("Datapoint/ReadValues", payload)
@@ -324,8 +480,8 @@ class KermiClient:
             "DatapointValues": [
                 {
                     "$type": _TYPE_INT,
-                    "DatapointConfigId": _DP[_CIRCUIT_TO_MODE_DP[c]],
-                    "DeviceId": self._device_id,
+                    "DatapointConfigId": self._dp[_CIRCUIT_TO_MODE_DP[c]],
+                    "DeviceId": self._device_for(_CIRCUIT_TO_MODE_DP[c]),
                     "Value": int(mode),
                 }
                 for c in circuits
@@ -352,8 +508,8 @@ class KermiClient:
             "DatapointValues": [
                 {
                     "$type": _TYPE_INT,
-                    "DatapointConfigId": _DP[_WEZ_TO_BETRIEBSART_DP[wez]],
-                    "DeviceId": self._device_id,
+                    "DatapointConfigId": self._dp[_WEZ_TO_BETRIEBSART_DP[wez]],
+                    "DeviceId": self._device_for(_WEZ_TO_BETRIEBSART_DP[wez]),
                     "Value": int(mode),
                 }
             ]
@@ -378,8 +534,8 @@ class KermiClient:
             "DatapointValues": [
                 {
                     "$type": _TYPE_FLOAT,
-                    "DatapointConfigId": _DP["dhw_setpoint"],
-                    "DeviceId": self._device_id,
+                    "DatapointConfigId": self._dp["dhw_setpoint"],
+                    "DeviceId": self._device_for("dhw_setpoint"),
                     "Value": float(temp),
                 }
             ]
@@ -398,8 +554,8 @@ class KermiClient:
             "DatapointValues": [
                 {
                     "$type": _TYPE_BOOL,
-                    "DatapointConfigId": _DP["dhw_oneshot_trigger"],
-                    "DeviceId": self._device_id,
+                    "DatapointConfigId": self._dp["dhw_oneshot_trigger"],
+                    "DeviceId": self._device_for("dhw_oneshot_trigger"),
                     "Value": True,
                 }
             ]
@@ -422,8 +578,8 @@ class KermiClient:
             "DatapointValues": [
                 {
                     "$type": _TYPE_BOOL,
-                    "DatapointConfigId": _DP["quiet_mode"],
-                    "DeviceId": self._device_id,
+                    "DatapointConfigId": self._dp["quiet_mode"],
+                    "DeviceId": self._device_for("quiet_mode"),
                     "Value": bool(enabled),
                 }
             ]
@@ -461,8 +617,8 @@ class KermiClient:
             "DatapointValues": [
                 {
                     "$type": _TYPE_INT,
-                    "DatapointConfigId": _DP[_CIRCUIT_TO_CURVE_DP[c]],
-                    "DeviceId": self._device_id,
+                    "DatapointConfigId": self._dp[_CIRCUIT_TO_CURVE_DP[c]],
+                    "DeviceId": self._device_for(_CIRCUIT_TO_CURVE_DP[c]),
                     "Value": int(shift),
                 }
                 for c in circuits
@@ -493,17 +649,6 @@ class KermiClient:
         if not body.get("isValid"):
             raise KermiAuthError("Kermi login rejected — check password")
 
-    async def _discover_device_id(self) -> str:
-        """Return the DeviceId of the first non-home-server device."""
-        data = await self._get("Device/GetAllDevices")
-        for device in data:
-            # DeviceType 0 is the home server (x-center controller itself); skip it.
-            if device.get("DeviceType", 0) != 0:
-                device_id = device["DeviceId"]
-                _LOGGER.debug("Kermi: discovered device_id=%s (%s)", device_id, device.get("Name"))
-                return device_id
-        raise KermiConnectionError("No heat pump device found via GetAllDevices")
-
     async def _get(self, endpoint: str) -> Any:
         url = f"{self._base}/{endpoint}/{self._dest}"
         try:
@@ -533,14 +678,14 @@ class KermiClient:
         except aiohttp.ClientError as exc:
             raise KermiConnectionError(f"POST {endpoint} failed: {exc}") from exc
 
-    @staticmethod
-    def _parse_sensors(response: dict) -> KermiSensors:
+    def _parse_sensors(self, response: dict) -> KermiSensors:
         """Build a :class:`KermiSensors` from a ReadValues response dict."""
         items: list[dict] = response.get("ResponseData") or []
-        by_config_id = {item["DatapointConfigId"]: item.get("Value") for item in items}
+        by_config_id = {cid: item.get("Value") for item in items if (cid := item.get("DatapointConfigId")) is not None}
 
         def _get(name: str) -> Any:
-            return by_config_id.get(_DP[name])
+            guid = self._dp.get(name)
+            return by_config_id.get(guid) if guid else None
 
         def _float(name: str) -> float | None:
             v = _get(name)
@@ -602,4 +747,10 @@ class KermiClient:
             wp_flow_temp_lc=_float("wp_flow_temp_lc"),
             cop_heating_live=_float("cop_heating_live"),
             cop_dhw_live=_float("cop_dhw_live"),
+            is_defrosting=_bool("is_defrosting"),
+            compressor_hours=_float("compressor_hours"),
+            modulation_pct=_float("modulation_pct"),
+            temp_spread=_float("temp_spread"),
+            pv_available_power=_float("pv_available_power"),
+            heater_power=_float("heater_power"),
         )

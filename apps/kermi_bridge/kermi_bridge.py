@@ -13,6 +13,7 @@ import time
 from datetime import UTC, datetime
 
 import appdaemon.plugins.hass.hassapi as hass
+
 from kermi_bridge.kermi_client import (
     EnergyMode,
     KermiAuthError,
@@ -75,6 +76,12 @@ _ALL_SENSOR_ENTITIES = [
     "sensor.kermi_wp_flow_temp_lc",
     "sensor.kermi_cop_heating_live",
     "sensor.kermi_cop_dhw_live",
+    "sensor.kermi_is_defrosting",
+    "sensor.kermi_compressor_hours",
+    "sensor.kermi_modulation_pct",
+    "sensor.kermi_temp_spread",
+    "sensor.kermi_pv_available_power",
+    "sensor.kermi_heater_power",
 ]
 
 # Static HA attributes for each published entity (device_class, state_class, etc.).
@@ -141,6 +148,17 @@ _ENTITY_ATTRS: dict[str, dict] = {
     "sensor.kermi_wp_flow_temp_lc": {"device_class": "temperature", "unit_of_measurement": "°C"},
     "sensor.kermi_cop_heating_live": {"state_class": "measurement"},
     "sensor.kermi_cop_dhw_live": {"state_class": "measurement"},
+    # Rubin-only sensors
+    "sensor.kermi_is_defrosting": {},
+    "sensor.kermi_compressor_hours": {"state_class": "total_increasing", "unit_of_measurement": "h"},
+    "sensor.kermi_modulation_pct": {"state_class": "measurement", "unit_of_measurement": "%"},
+    "sensor.kermi_temp_spread": {"state_class": "measurement", "unit_of_measurement": "K"},
+    "sensor.kermi_pv_available_power": {
+        "device_class": "power",
+        "state_class": "measurement",
+        "unit_of_measurement": "kW",
+    },
+    "sensor.kermi_heater_power": {"device_class": "power", "state_class": "measurement", "unit_of_measurement": "kW"},
 }
 
 # MQTT sensor discovery config: (uid, name, unit, icon, device_class, state_class)
@@ -186,6 +204,12 @@ _SENSOR_DISCOVERY = [
     ("kermi_wp_flow_temp_lc", "Kermi WP Flow Temp LC", "°C", "mdi:thermometer", "temperature", "measurement"),
     ("kermi_cop_heating_live", "Kermi COP Heating (live)", "", "mdi:heat-pump", None, "measurement"),
     ("kermi_cop_dhw_live", "Kermi COP DHW (live)", "", "mdi:water-boiler", None, "measurement"),
+    ("kermi_is_defrosting", "Kermi Is Defrosting", "", "mdi:snowflake-melt", None, None),
+    ("kermi_compressor_hours", "Kermi Compressor Hours", "h", "mdi:clock-outline", None, "total_increasing"),
+    ("kermi_modulation_pct", "Kermi Modulation", "%", "mdi:gauge", None, "measurement"),
+    ("kermi_temp_spread", "Kermi Temperature Spread", "K", "mdi:thermometer-lines", None, "measurement"),
+    ("kermi_pv_available_power", "Kermi PV Available Power", "kW", "mdi:solar-power", "power", "measurement"),
+    ("kermi_heater_power", "Kermi Heater Power", "kW", "mdi:heat-wave", "power", "measurement"),
     # Note: kermi_bridge_status is published separately in _publish_mqtt_discovery()
     # because it requires a json_attrs_topic — do not add it here.
 ]
@@ -485,12 +509,24 @@ class KermiBridge(MQTTMixin, hass.Hass):
             ("kermi_wp_flow_temp_lc", sensors.wp_flow_temp_lc),
             ("kermi_cop_heating_live", sensors.cop_heating_live),
             ("kermi_cop_dhw_live", sensors.cop_dhw_live),
+            ("kermi_compressor_hours", sensors.compressor_hours),
+            ("kermi_modulation_pct", sensors.modulation_pct),
+            ("kermi_temp_spread", sensors.temp_spread),
+            ("kermi_pv_available_power", sensors.pv_available_power),
+            ("kermi_heater_power", sensors.heater_power),
         ]
         for uid, value in simple:
             if value is None:
                 self._mqtt_set_sensor_raw(uid, "unavailable")
             else:
                 self._mqtt_set_sensor(uid, value)
+
+        # Boolean sensor: true/false string (not float via _mqtt_set_sensor)
+        defrost = sensors.is_defrosting
+        self._mqtt_set_sensor_raw(
+            "kermi_is_defrosting",
+            "unavailable" if defrost is None else ("true" if defrost else "false"),
+        )
 
         # Binary sensor: ON/OFF for MQTT binary sensor
         evu = sensors.evu_status
@@ -550,6 +586,11 @@ class KermiBridge(MQTTMixin, hass.Hass):
             ("sensor.kermi_wp_flow_temp_lc", sensors.wp_flow_temp_lc),
             ("sensor.kermi_cop_heating_live", sensors.cop_heating_live),
             ("sensor.kermi_cop_dhw_live", sensors.cop_dhw_live),
+            ("sensor.kermi_compressor_hours", sensors.compressor_hours),
+            ("sensor.kermi_modulation_pct", sensors.modulation_pct),
+            ("sensor.kermi_temp_spread", sensors.temp_spread),
+            ("sensor.kermi_pv_available_power", sensors.pv_available_power),
+            ("sensor.kermi_heater_power", sensors.heater_power),
         ]
         for entity_id, value in simple:
             self.set_state(
@@ -557,6 +598,14 @@ class KermiBridge(MQTTMixin, hass.Hass):
                 state="unavailable" if value is None else str(value),
                 attributes=_ENTITY_ATTRS.get(entity_id, {}),
             )
+
+        # Boolean sensor (string state, not float)
+        defrost = sensors.is_defrosting
+        self.set_state(
+            "sensor.kermi_is_defrosting",
+            state="unavailable" if defrost is None else ("true" if defrost else "false"),
+            attributes=_ENTITY_ATTRS.get("sensor.kermi_is_defrosting", {}),
+        )
 
         # Binary sensor
         evu = sensors.evu_status
