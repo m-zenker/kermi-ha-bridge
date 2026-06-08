@@ -78,13 +78,6 @@ _DP = {
     "heating_curve_shift_mk1": "ed643ada-7265-43b3-b6aa-13bcc08ed53e",  # int [-5, +5]
     "heating_curve_shift_mk2": "3ea5f70b-d320-4592-8b19-06a8e3d26b53",
     "heating_curve_shift_hk": "04ba9dab-2dd7-4bc3-9b42-d0a5a8d7c5f9",
-    # Rubin-only — will be resolved via WKN lookup in Task 2; placeholders for now
-    "is_defrosting": "00000000-0000-0000-0000-000000000000",
-    "compressor_hours": "00000000-0000-0000-0000-000000000000",
-    "modulation_pct": "00000000-0000-0000-0000-000000000000",
-    "temp_spread": "00000000-0000-0000-0000-000000000000",
-    "pv_available_power": "00000000-0000-0000-0000-000000000000",
-    "heater_power": "00000000-0000-0000-0000-000000000000",
 }
 
 # WellKnownName aliases per dp_key, priority order (first match in live catalogue wins).
@@ -368,7 +361,9 @@ class KermiClient:
         await self._ensure_connected()
         payload = {
             "DatapointValues": [
-                {"DatapointConfigId": _DP[name], "DeviceId": self._device_id} for name in _READ_DATAPOINTS
+                {"DatapointConfigId": _DP[name], "DeviceId": self._device_id}
+                for name in _READ_DATAPOINTS
+                if _DP.get(name) is not None
             ]
         }
         return await self._post("Datapoint/ReadValues", payload)
@@ -613,7 +608,10 @@ class KermiClient:
         by_config_id = {item["DatapointConfigId"]: item.get("Value") for item in items}
 
         def _get(name: str) -> Any:
-            return by_config_id.get(_DP[name])
+            dp_guid = _DP.get(name)
+            if dp_guid is None:
+                return None
+            return by_config_id.get(dp_guid)
 
         def _float(name: str) -> float | None:
             v = _get(name)
