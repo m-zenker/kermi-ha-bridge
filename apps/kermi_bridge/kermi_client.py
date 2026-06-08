@@ -78,6 +78,65 @@ _DP = {
     "heating_curve_shift_mk1": "ed643ada-7265-43b3-b6aa-13bcc08ed53e",  # int [-5, +5]
     "heating_curve_shift_mk2": "3ea5f70b-d320-4592-8b19-06a8e3d26b53",
     "heating_curve_shift_hk": "04ba9dab-2dd7-4bc3-9b42-d0a5a8d7c5f9",
+    # Rubin-only — will be resolved via WKN lookup in Task 2; placeholders for now
+    "is_defrosting": "00000000-0000-0000-0000-000000000000",
+    "compressor_hours": "00000000-0000-0000-0000-000000000000",
+    "modulation_pct": "00000000-0000-0000-0000-000000000000",
+    "temp_spread": "00000000-0000-0000-0000-000000000000",
+    "pv_available_power": "00000000-0000-0000-0000-000000000000",
+    "heater_power": "00000000-0000-0000-0000-000000000000",
+}
+
+# WellKnownName aliases per dp_key, priority order (first match in live catalogue wins).
+# Classic firmware uses HP_* names; Rubin/BufferSystem firmware uses Rubin_*/BufferSystem_* names.
+# Empty list = no WKN known; hardcoded GUID is kept as-is.
+_DP_TO_WKN: dict[str, list[str]] = {
+    "hp_state": ["HP_HeatpumpState", "Rubin_CombinedHeatpumpState"],
+    "outside_temp": ["VolWo_Temperature_Sensor_S1_Value", "Aussentemperatur"],
+    "outside_temp_avg": ["Aussentemperatur_gemittelt"],
+    "compressor_power_kw": ["HP_AktuelleMotorleistungKW", "Rubin_CurrentPowerInverter"],
+    "heating_output_kw": ["HP_HeatOutput", "Rubin_CalculatedPowerHeating"],
+    "cop": ["HP_TotalCOP", "Rubin_CurrentCOP"],
+    "cop_heating_avg": ["HP_HeatingWaterAverageCOP"],
+    "scop": ["HP_SCOPGesamt"],
+    "flow_temp_mk1": ["HP_MK1IstTemp"],
+    "flow_temp_mk2": ["HP_MK2IstTemp"],
+    "hot_water_temp": ["HP_TWETempIst", "BufferSystem_TweTemperatureActual"],
+    "buffer_temp": ["HP_IstTempHW", "BufferSystem_HeatingTemperatureActual"],
+    "heating_setpoint": ["HP_HeizwasserSollwertPanel", "BufferSystem_HeatingSetpoint"],
+    "setpoint_mk1": ["HP_MK1SollTempPanel"],
+    "smart_grid_status": ["HP_SmartGridStatus", "Rubin_PvIsActive"],
+    "evu_status": [],
+    "lifetime_electricity_kwh": ["HP_StrommengeGesamt"],
+    "lifetime_heat_kwh": ["HP_WaermemengeGesamt"],
+    "electricity_heating_kwh": ["HP_HeatingWaterElectricalEnergy"],
+    "electricity_dhw_kwh": ["HP_HotWaterElectricalEnergy"],
+    "wez1_status": [],
+    "wez1_operating_hours": ["X_Hours_Complete_H01"],
+    "wez2_status": [],
+    "wez2_operating_hours": ["X_Hours_Complete_Heatersys"],
+    "wez1_betriebsart": ["HP_BivBWBivalenceControl"],
+    "wez2_betriebsart": ["HP_BivHZBivalenceControl"],
+    "wp_return_temp": ["HP_EinlasstempLadekreis", "Rubin_SecondaryInletTemp"],
+    "wp_flow_temp_lc": ["HP_AuslasstempLadekreis", "Rubin_SecondaryOutletTemp"],
+    "cop_heating_live": ["HP_HeatingWaterCOP", "Rubin_CurrentCOPHeating"],
+    "cop_dhw_live": ["HP_HotWaterCOP", "Rubin_CurrentCOPTwe"],
+    "energy_mode_mk1": ["HP_EnergyModeHk1"],
+    "energy_mode_mk2": ["HP_EnergyModeHk2"],
+    "energy_mode_hk": ["HP_EnergyModeHk3"],
+    "dhw_setpoint": ["HP_TWESoll", "BufferSystem_TweSetpoint"],
+    "dhw_oneshot_trigger": ["HP_EinmalTWEPanel", "BufferSystem_OneTimeTwe"],
+    "quiet_mode": ["HP_LowNoise"],
+    "heating_curve_shift_mk1": ["HPxyz_TemperatureAdjustMk1"],
+    "heating_curve_shift_mk2": ["HPxyz_TemperatureAdjustMk2"],
+    "heating_curve_shift_hk": ["HPxyz_TemperatureAdjustMk3"],
+    # Rubin-only — no classic firmware equivalent; absent from _DP
+    "is_defrosting": ["Rubin_IsDefrosting"],
+    "compressor_hours": ["Rubin_OperationHoursCompressor"],
+    "modulation_pct": ["Rubin_CurrentOutputCapacityHeating"],
+    "temp_spread": ["Rubin_TemperatureSpreadHeating"],
+    "pv_available_power": ["Rubin_PvAvailablePower"],
+    "heater_power": ["BufferSystem_HeaterElectricalPower"],
 }
 
 _WEZ_TO_BETRIEBSART_DP = {1: "wez1_betriebsart", 2: "wez2_betriebsart"}
@@ -128,6 +187,13 @@ _READ_DATAPOINTS = [
     "wp_flow_temp_lc",
     "cop_heating_live",
     "cop_dhw_live",
+    # Rubin-only — present in self._dp only when resolved via WKN
+    "is_defrosting",
+    "compressor_hours",
+    "modulation_pct",
+    "temp_spread",
+    "pv_available_power",
+    "heater_power",
 ]
 
 
@@ -195,6 +261,13 @@ class KermiSensors:
     wp_flow_temp_lc: float | None = None
     cop_heating_live: float | None = None
     cop_dhw_live: float | None = None
+    # Rubin-only sensors (None on classic firmware)
+    is_defrosting: bool | None = None
+    compressor_hours: float | None = None
+    modulation_pct: float | None = None
+    temp_spread: float | None = None
+    pv_available_power: float | None = None
+    heater_power: float | None = None
     # Metadata
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -602,4 +675,10 @@ class KermiClient:
             wp_flow_temp_lc=_float("wp_flow_temp_lc"),
             cop_heating_live=_float("cop_heating_live"),
             cop_dhw_live=_float("cop_dhw_live"),
+            is_defrosting=_bool("is_defrosting"),
+            compressor_hours=_float("compressor_hours"),
+            modulation_pct=_float("modulation_pct"),
+            temp_spread=_float("temp_spread"),
+            pv_available_power=_float("pv_available_power"),
+            heater_power=_float("heater_power"),
         )
