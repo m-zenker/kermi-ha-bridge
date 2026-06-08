@@ -681,7 +681,7 @@ class KermiClient:
     def _parse_sensors(self, response: dict) -> KermiSensors:
         """Build a :class:`KermiSensors` from a ReadValues response dict."""
         items: list[dict] = response.get("ResponseData") or []
-        by_config_id = {item["DatapointConfigId"]: item.get("Value") for item in items}
+        by_config_id = {cid: item.get("Value") for item in items if (cid := item.get("DatapointConfigId")) is not None}
 
         def _get(name: str) -> Any:
             guid = self._dp.get(name)
