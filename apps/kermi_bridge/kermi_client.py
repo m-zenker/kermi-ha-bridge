@@ -332,6 +332,8 @@ class KermiClient:
         devices = await self._get("Device/GetAllDevices")
 
         # Build DeviceType → first DeviceId map for all non-home-server devices.
+        self._dp = dict(_DP)
+        self._dp_dtype = {}
         self._dtype_device = {}
         for device in devices:
             dtype = device.get("DeviceType", 0)
