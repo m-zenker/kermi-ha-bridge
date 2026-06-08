@@ -509,7 +509,6 @@ class KermiBridge(MQTTMixin, hass.Hass):
             ("kermi_wp_flow_temp_lc", sensors.wp_flow_temp_lc),
             ("kermi_cop_heating_live", sensors.cop_heating_live),
             ("kermi_cop_dhw_live", sensors.cop_dhw_live),
-            ("kermi_is_defrosting", sensors.is_defrosting),
             ("kermi_compressor_hours", sensors.compressor_hours),
             ("kermi_modulation_pct", sensors.modulation_pct),
             ("kermi_temp_spread", sensors.temp_spread),
@@ -521,6 +520,13 @@ class KermiBridge(MQTTMixin, hass.Hass):
                 self._mqtt_set_sensor_raw(uid, "unavailable")
             else:
                 self._mqtt_set_sensor(uid, value)
+
+        # Boolean sensor: true/false string (not float via _mqtt_set_sensor)
+        defrost = sensors.is_defrosting
+        self._mqtt_set_sensor_raw(
+            "kermi_is_defrosting",
+            "unavailable" if defrost is None else ("true" if defrost else "false"),
+        )
 
         # Binary sensor: ON/OFF for MQTT binary sensor
         evu = sensors.evu_status
@@ -580,7 +586,6 @@ class KermiBridge(MQTTMixin, hass.Hass):
             ("sensor.kermi_wp_flow_temp_lc", sensors.wp_flow_temp_lc),
             ("sensor.kermi_cop_heating_live", sensors.cop_heating_live),
             ("sensor.kermi_cop_dhw_live", sensors.cop_dhw_live),
-            ("sensor.kermi_is_defrosting", sensors.is_defrosting),
             ("sensor.kermi_compressor_hours", sensors.compressor_hours),
             ("sensor.kermi_modulation_pct", sensors.modulation_pct),
             ("sensor.kermi_temp_spread", sensors.temp_spread),
@@ -593,6 +598,14 @@ class KermiBridge(MQTTMixin, hass.Hass):
                 state="unavailable" if value is None else str(value),
                 attributes=_ENTITY_ATTRS.get(entity_id, {}),
             )
+
+        # Boolean sensor (string state, not float)
+        defrost = sensors.is_defrosting
+        self.set_state(
+            "sensor.kermi_is_defrosting",
+            state="unavailable" if defrost is None else ("true" if defrost else "false"),
+            attributes=_ENTITY_ATTRS.get("sensor.kermi_is_defrosting", {}),
+        )
 
         # Binary sensor
         evu = sensors.evu_status

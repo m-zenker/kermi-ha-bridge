@@ -942,7 +942,8 @@ class TestResolveGuids:
     async def test_resolution_failure_falls_back_to_hardcoded_guids(self):
         """If GetConfigsByDeviceType raises, self._dp keeps the original _DP values."""
         # Only provide Login and GetAllDevices — no GetConfigsByDeviceType response.
-        # _FakeSession.post raises StopIteration on the second call, caught by _resolve_guids.
+        # StopIteration from exhausted _FakeSession becomes RuntimeError inside the coroutine
+        # (PEP 479); caught by the outer except Exception in _resolve_guids.
         session = _FakeSession(
             post=[_mock_response(LOGIN_OK)],
             get=[_mock_response(DEVICES_RESPONSE)],
