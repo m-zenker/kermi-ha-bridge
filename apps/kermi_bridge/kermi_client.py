@@ -306,6 +306,9 @@ class KermiClient:
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._session: aiohttp.ClientSession | None = None
         self._connected = False
+        self._dp: dict[str, str] = dict(_DP)  # per-instance; patched by _resolve_guids()
+        self._dp_dtype: dict[str, int] = {}  # dp_key → DeviceType (set at connect)
+        self._dtype_device: dict[int, str] = {}  # DeviceType → first DeviceId (set at connect)
 
     # ── Context manager ───────────────────────────────────────────────────────
 
@@ -319,15 +322,37 @@ class KermiClient:
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def connect(self) -> None:
-        """Open an aiohttp session and authenticate."""
+        """Open an aiohttp session, authenticate, discover devices, and resolve GUIDs."""
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
                 timeout=self._timeout,
                 cookie_jar=aiohttp.CookieJar(unsafe=True),
             )
         await self._login()
+        devices = await self._get("Device/GetAllDevices")
+
+        # Build DeviceType → first DeviceId map for all non-home-server devices.
+        self._dtype_device = {}
+        for device in devices:
+            dtype = device.get("DeviceType", 0)
+            if dtype != 0:
+                self._dtype_device.setdefault(dtype, device["DeviceId"])
+
+        # Discover primary device_id if not provided by caller.
         if self._device_id is None:
-            self._device_id = await self._discover_device_id()
+            for device in devices:
+                if device.get("DeviceType", 0) != 0:
+                    self._device_id = device["DeviceId"]
+                    _LOGGER.debug(
+                        "Kermi: discovered device_id=%s (%s)",
+                        self._device_id,
+                        device.get("Name"),
+                    )
+                    break
+            if self._device_id is None:
+                raise KermiConnectionError("No heat pump device found via GetAllDevices")
+
+        await self._resolve_guids(devices)
         self._connected = True
         _LOGGER.debug("Kermi: connected to %s, device_id=%s", self._base, self._device_id)
 
@@ -340,6 +365,64 @@ class KermiClient:
                 pass
             await self._session.close()
         self._connected = False
+
+    async def _resolve_guids(self, devices: list[dict]) -> None:
+        """Patch self._dp with live GUIDs from GetConfigsByDeviceType.
+
+        Iterates every non-home-server DeviceType, fetches its datapoint catalogue,
+        builds a WKN→(GUID, DeviceType) map, then overwrites self._dp entries for any
+        dp_key whose WKN candidate list has a match. Failures are non-fatal.
+        """
+        try:
+            dtypes = sorted({d.get("DeviceType", 0) for d in devices} - {0})
+            wkn_to_guid: dict[str, str] = {}
+            wkn_to_dtype: dict[str, int] = {}
+
+            for dtype in dtypes:
+                try:
+                    data = await self._post("Datapoint/GetConfigsByDeviceType", {"DeviceType": dtype})
+                    configs = data.get("ResponseData") or []
+                except KermiError as exc:
+                    _LOGGER.warning("Kermi: GetConfigsByDeviceType(%s) failed: %s", dtype, exc)
+                    continue
+                for cfg in configs:
+                    wkn = cfg.get("WellKnownName")
+                    guid = cfg.get("DatapointConfigId")
+                    if wkn and guid:
+                        wkn_to_guid[wkn] = guid.lower()
+                        wkn_to_dtype[wkn] = dtype
+
+            resolved = 0
+            for dp_key, wkns in _DP_TO_WKN.items():
+                for wkn in wkns:
+                    if wkn in wkn_to_guid:
+                        live_guid = wkn_to_guid[wkn]
+                        old_guid = self._dp.get(dp_key)
+                        if old_guid != live_guid:
+                            _LOGGER.debug(
+                                "Kermi: GUID resolved %s: %s -> %s (WKN: %s)",
+                                dp_key,
+                                old_guid or "(new)",
+                                live_guid,
+                                wkn,
+                            )
+                        self._dp[dp_key] = live_guid
+                        self._dp_dtype[dp_key] = wkn_to_dtype[wkn]
+                        resolved += 1
+                        break
+
+            _LOGGER.info(
+                "Kermi: WKN resolution complete — %d/%d datapoints resolved from live catalogue",
+                resolved,
+                len(_DP_TO_WKN),
+            )
+        except Exception as exc:
+            _LOGGER.warning("Kermi: WKN GUID resolution failed (%s) — using hardcoded GUIDs", exc)
+
+    def _device_for(self, dp_key: str) -> str:
+        """Return the DeviceId that owns dp_key, falling back to the primary device."""
+        dtype = self._dp_dtype.get(dp_key)
+        return self._dtype_device.get(dtype, self._device_id) if dtype else self._device_id
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -560,17 +643,6 @@ class KermiClient:
 
         if not body.get("isValid"):
             raise KermiAuthError("Kermi login rejected — check password")
-
-    async def _discover_device_id(self) -> str:
-        """Return the DeviceId of the first non-home-server device."""
-        data = await self._get("Device/GetAllDevices")
-        for device in data:
-            # DeviceType 0 is the home server (x-center controller itself); skip it.
-            if device.get("DeviceType", 0) != 0:
-                device_id = device["DeviceId"]
-                _LOGGER.debug("Kermi: discovered device_id=%s (%s)", device_id, device.get("Name"))
-                return device_id
-        raise KermiConnectionError("No heat pump device found via GetAllDevices")
 
     async def _get(self, endpoint: str) -> Any:
         url = f"{self._base}/{endpoint}/{self._dest}"
