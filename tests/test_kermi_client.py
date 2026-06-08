@@ -956,12 +956,7 @@ class TestResolveGuids:
     @pytest.mark.asyncio
     async def test_read_payload_skips_unresolved_rubin_keys(self):
         """On classic firmware, Rubin-only keys absent from self._dp are not in the ReadValues payload."""
-        session = _FakeSession(
-            post=[
-                _mock_response({"ResponseData": [], "StatusCode": 0}),  # ReadValues response
-            ],
-            get=[],
-        )
+        session = _FakeSession(post=[], get=[])
         client = _client_with_session(session, device_id=DEVICE_ID)
         client._connected = True
         # Manually set up a classic _dp (no is_defrosting key)
