@@ -44,6 +44,56 @@ DEVICES_RESPONSE = {
 
 DEVICE_ID = "67b4e4ca-df6e-4fb4-8107-f5a35df73981"
 
+DEVICES_RUBIN = {
+    "ResponseData": [
+        {
+            "DeviceId": "aaaa0001-0000-0000-0000-000000000000",
+            "DeviceType": 97,
+            "Name": "x-change dynamic pro",
+        },
+        {
+            "DeviceId": "bbbb0001-0000-0000-0000-000000000000",
+            "DeviceType": 95,
+            "Name": "Heizen",
+        },
+    ],
+    "StatusCode": 0,
+}
+DEVICE_ID_RUBIN = "aaaa0001-0000-0000-0000-000000000000"
+DEVICE_ID_BUFFER = "bbbb0001-0000-0000-0000-000000000000"
+
+# Minimal GetConfigsByDeviceType responses — include only the entries needed for tests.
+CONFIGS_CLASSIC_DT2 = {
+    "ResponseData": [
+        {"WellKnownName": "HP_HeatpumpState", "DatapointConfigId": "41258683-9b38-4065-80d2-34c9a7e6ec2c"},
+        {"WellKnownName": "HP_TotalCOP", "DatapointConfigId": "34760a09-8f79-424f-a1b0-5f1a9339d864"},
+    ],
+    "StatusCode": 0,
+}
+CONFIGS_RUBIN_DT97 = {
+    "ResponseData": [
+        {"WellKnownName": "Rubin_CombinedHeatpumpState", "DatapointConfigId": "f3966fa2-a25e-4cfe-a360-4749a0c5c1e0"},
+        {"WellKnownName": "Rubin_CurrentCOP", "DatapointConfigId": "76b2a146-4cd6-477c-bf22-e420eeb51253"},
+        {"WellKnownName": "Rubin_IsDefrosting", "DatapointConfigId": "beff28be-32db-410d-b7ab-4304481e4b4a"},
+    ],
+    "StatusCode": 0,
+}
+CONFIGS_RUBIN_DT95 = {
+    "ResponseData": [
+        {
+            "WellKnownName": "BufferSystem_TweTemperatureActual",
+            "DatapointConfigId": "06e61673-abc2-4671-9e5a-960809d1f326",
+        },
+        {
+            "WellKnownName": "BufferSystem_HeatingTemperatureActual",
+            "DatapointConfigId": "63b1281e-d5b2-406d-b6cd-6564e7168d18",
+        },
+        {"WellKnownName": "BufferSystem_TweSetpoint", "DatapointConfigId": "8f7dd1c6-8e9c-4699-8d6e-3f561d947df4"},
+    ],
+    "StatusCode": 0,
+}
+CONFIGS_EMPTY = {"ResponseData": [], "StatusCode": 0}
+
 
 def _make_read_response(values: dict[str, Any]) -> dict:
     """Build a ReadValues ResponseData payload from {dp_name: value} dict."""
@@ -139,7 +189,7 @@ class TestConnect:
     @pytest.mark.asyncio
     async def test_connect_login_and_discover_device(self):
         session = _FakeSession(
-            post=[_mock_response(LOGIN_OK)],  # POST Security/Login
+            post=[_mock_response(LOGIN_OK), _mock_response(CONFIGS_CLASSIC_DT2)],  # Login, GetConfigsByDeviceType
             get=[_mock_response(DEVICES_RESPONSE)],  # GET Device/GetAllDevices
         )
         client = _client_with_session(session)
@@ -151,7 +201,8 @@ class TestConnect:
     @pytest.mark.asyncio
     async def test_connect_uses_provided_device_id(self):
         session = _FakeSession(
-            post=[_mock_response(LOGIN_OK)],  # POST Security/Login — no GetAllDevices call
+            post=[_mock_response(LOGIN_OK), _mock_response(CONFIGS_CLASSIC_DT2)],
+            get=[_mock_response(DEVICES_RESPONSE)],
         )
         client = _client_with_session(session, device_id=DEVICE_ID)
         await client.connect()
@@ -233,6 +284,12 @@ class TestReadSensors:
         assert sensors.electricity_heating_kwh == pytest.approx(8886.0)
         assert sensors.electricity_dhw_kwh == pytest.approx(1282.0)
         assert sensors.timestamp is not None
+        assert sensors.is_defrosting is None
+        assert sensors.compressor_hours is None
+        assert sensors.modulation_pct is None
+        assert sensors.temp_spread is None
+        assert sensors.pv_available_power is None
+        assert sensors.heater_power is None
 
     @pytest.mark.asyncio
     async def test_handles_missing_datapoints_gracefully(self):
@@ -253,7 +310,7 @@ class TestReadSensors:
         """read_sensors should call connect() when _connected is False."""
         read_body = _make_read_response({"outside_temp": 7.0})
         session = _FakeSession(
-            post=[_mock_response(LOGIN_OK), _mock_response(read_body)],
+            post=[_mock_response(LOGIN_OK), _mock_response(CONFIGS_CLASSIC_DT2), _mock_response(read_body)],
             get=[_mock_response(DEVICES_RESPONSE)],
         )
         client = _client_with_session(session)
@@ -820,3 +877,156 @@ class TestSetWezMode:
         client, _ = self._make_client(_make_write_response(1, "Schreiben nicht erlaubt."))
         with pytest.raises(KermiWriteError, match="WriteValues failed"):
             await client.set_wez_mode(1, WezMode.AUTO)
+
+
+# ── WKN GUID resolution ───────────────────────────────────────────────────────
+
+
+class TestResolveGuids:
+    """Tests for WKN-based GUID resolution at connect time."""
+
+    @pytest.mark.asyncio
+    async def test_classic_firmware_guids_unchanged(self):
+        """Classic firmware: WKN matches existing GUID → self._dp unchanged."""
+        session = _FakeSession(
+            post=[
+                _mock_response(LOGIN_OK),
+                _mock_response(CONFIGS_CLASSIC_DT2),  # DeviceType=2
+            ],
+            get=[_mock_response(DEVICES_RESPONSE)],
+        )
+        client = _client_with_session(session)
+        await client.connect()
+
+        assert client._dp["hp_state"] == _DP["hp_state"]
+        assert client._dp["cop"] == _DP["cop"]
+
+    @pytest.mark.asyncio
+    async def test_rubin_firmware_guids_overridden(self):
+        """Rubin firmware: Rubin_* WKNs override hp_state and cop GUIDs."""
+        session = _FakeSession(
+            post=[
+                _mock_response(LOGIN_OK),
+                _mock_response(CONFIGS_RUBIN_DT95),  # DeviceType=95 (sorted first)
+                _mock_response(CONFIGS_RUBIN_DT97),  # DeviceType=97
+            ],
+            get=[_mock_response(DEVICES_RUBIN)],
+        )
+        client = _client_with_session(session)
+        await client.connect()
+
+        assert client._dp["hp_state"] == "f3966fa2-a25e-4cfe-a360-4749a0c5c1e0"
+        assert client._dp["cop"] == "76b2a146-4cd6-477c-bf22-e420eeb51253"
+        assert client._dp["hot_water_temp"] == "06e61673-abc2-4671-9e5a-960809d1f326"
+
+    @pytest.mark.asyncio
+    async def test_rubin_new_sensors_added_to_dp(self):
+        """Rubin-only sensors absent from _DP are added to self._dp after resolution."""
+        session = _FakeSession(
+            post=[
+                _mock_response(LOGIN_OK),
+                _mock_response(CONFIGS_RUBIN_DT95),
+                _mock_response(CONFIGS_RUBIN_DT97),
+            ],
+            get=[_mock_response(DEVICES_RUBIN)],
+        )
+        client = _client_with_session(session)
+
+        assert "is_defrosting" not in _DP  # confirm it's absent from the module-level table
+
+        await client.connect()
+
+        assert client._dp["is_defrosting"] == "beff28be-32db-410d-b7ab-4304481e4b4a"
+
+    @pytest.mark.asyncio
+    async def test_resolution_failure_falls_back_to_hardcoded_guids(self):
+        """If GetConfigsByDeviceType raises, self._dp keeps the original _DP values."""
+        # Only provide Login and GetAllDevices — no GetConfigsByDeviceType response.
+        # _FakeSession.post raises StopIteration on the second call, caught by _resolve_guids.
+        session = _FakeSession(
+            post=[_mock_response(LOGIN_OK)],
+            get=[_mock_response(DEVICES_RESPONSE)],
+        )
+        client = _client_with_session(session)
+        await client.connect()  # must not raise
+
+        assert client._connected is True
+        assert client._dp["hp_state"] == _DP["hp_state"]
+
+    @pytest.mark.asyncio
+    async def test_read_payload_skips_unresolved_rubin_keys(self):
+        """On classic firmware, Rubin-only keys absent from self._dp are not in the ReadValues payload."""
+        session = _FakeSession(
+            post=[
+                _mock_response({"ResponseData": [], "StatusCode": 0}),  # ReadValues response
+            ],
+            get=[],
+        )
+        client = _client_with_session(session, device_id=DEVICE_ID)
+        client._connected = True
+        # Manually set up a classic _dp (no is_defrosting key)
+        client._dp = dict(_DP)
+        client._device_id = DEVICE_ID
+
+        # Capture what payload is sent
+        sent_payloads = []
+        original_post = client._post
+
+        async def _capturing_post(endpoint, payload):
+            if "ReadValues" in endpoint:
+                sent_payloads.append(payload)
+                return {"ResponseData": [], "StatusCode": 0}
+            return await original_post(endpoint, payload)
+
+        client._post = _capturing_post
+        await client.read_sensors_raw()
+
+        guids_sent = {v["DatapointConfigId"] for v in sent_payloads[0]["DatapointValues"]}
+        assert "beff28be-32db-410d-b7ab-4304481e4b4a" not in guids_sent  # Rubin_IsDefrosting not sent
+
+    @pytest.mark.asyncio
+    async def test_device_routing_uses_correct_device_id(self):
+        """Rubin firmware: BufferSystem datapoints use the DeviceType=95 DeviceId."""
+        session = _FakeSession(
+            post=[
+                _mock_response(LOGIN_OK),
+                _mock_response(CONFIGS_RUBIN_DT95),
+                _mock_response(CONFIGS_RUBIN_DT97),
+            ],
+            get=[_mock_response(DEVICES_RUBIN)],
+        )
+        client = _client_with_session(session)
+        await client.connect()
+
+        # hot_water_temp resolved from BufferSystem (DeviceType=95)
+        assert client._device_for("hot_water_temp") == DEVICE_ID_BUFFER
+        # hp_state resolved from Rubin (DeviceType=97)
+        assert client._device_for("hp_state") == DEVICE_ID_RUBIN
+
+
+# ── Rubin sensor parsing ──────────────────────────────────────────────────────
+
+
+class TestReadSensorsRubin:
+    @pytest.mark.asyncio
+    async def test_read_sensors_parses_rubin_fields(self):
+        """Rubin-specific fields are parsed when their GUIDs are in self._dp."""
+        client = _client_with_session(_FakeSession(), device_id=DEVICE_ID)
+        client._connected = True
+        client._dp = dict(_DP)
+        client._dp["is_defrosting"] = "beff28be-32db-410d-b7ab-4304481e4b4a"
+        client._dp["compressor_hours"] = "7d291fb2-8756-4d80-b3d6-d71c9575ae88"
+        client._dp_dtype = {}
+        client._dtype_device = {}
+
+        response = {
+            "ResponseData": [
+                {"DatapointConfigId": "beff28be-32db-410d-b7ab-4304481e4b4a", "Value": True},
+                {"DatapointConfigId": "7d291fb2-8756-4d80-b3d6-d71c9575ae88", "Value": 1234.5},
+            ],
+            "StatusCode": 0,
+        }
+        sensors = client._parse_sensors(response)
+
+        assert sensors.is_defrosting is True
+        assert sensors.compressor_hours == pytest.approx(1234.5)
