@@ -20,8 +20,8 @@ The bridge auto-detects firmware at startup via WellKnownName resolution and sel
 
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
-  - [Via HACS (recommended)](#via-hacs-recommended)
-  - [Manual installation](#manual-installation)
+  - [Manual installation (recommended)](#manual-installation-recommended)
+  - [Via HACS (experimental)](#via-hacs-experimental)
 - [Config reference](#config-reference)
 - [Verifying the installation](#verifying-the-installation)
 - [Firmware variants](#firmware-variants)
@@ -47,50 +47,9 @@ Before installing, confirm:
 
 ## Installation
 
-### Via HACS (recommended)
+### Manual installation (recommended)
 
 > **AppDaemon must be installed first.** This is an AppDaemon app — it is **not** a standard Home Assistant integration.
-
-**Step 1 — Add the custom repository**
-
-1. In HACS → three-dot menu → **Custom repositories**
-2. Paste the repository URL
-3. Set the **Category to "AppDaemon"** — not "Integration" (that will fail with a compliance error)
-4. Click **ADD**, then find and install "Kermi HA Bridge"
-
-**Step 2 — Register the app in `apps.yaml`**
-
-Add to `/config/appdaemon/apps/apps.yaml`:
-
-```yaml
-kermi_bridge:
-  module: kermi_bridge.kermi_bridge
-  class: KermiBridge
-  em_config_path: /config/appdaemon/apps/kermi_bridge/config.yaml
-  # mqtt_discovery: true   # Uncomment to enable MQTT Discovery (requires MQTT broker)
-```
-
-**Step 3 — Create the config file**
-
-Copy `apps/kermi_bridge/config.yaml.example` to `/config/appdaemon/apps/kermi_bridge/config.yaml`, then edit it:
-
-```yaml
-kermi_bridge:
-  host: 192.168.1.121        # x-center IP address
-  password: "1234"           # web UI password (see unit sticker)
-  poll_interval_s: 30
-  circuits: [MK1, MK2]
-```
-
-See [Config reference](#config-reference) for all options.
-
-**Step 4 — Restart AppDaemon**
-
-Then verify: see [Verifying the installation](#verifying-the-installation).
-
----
-
-### Manual installation
 
 **Step 1 — Copy files**
 
@@ -124,6 +83,51 @@ Create `<apps_dir>/kermi_bridge/config.yaml`:
 kermi_bridge:
   host: 192.168.1.121
   password: "1234"
+  poll_interval_s: 30
+  circuits: [MK1, MK2]
+```
+
+See [Config reference](#config-reference) for all options.
+
+**Step 4 — Restart AppDaemon**
+
+Then verify: see [Verifying the installation](#verifying-the-installation).
+
+---
+
+### Via HACS (experimental)
+
+> **Note:** HACS installation of AppDaemon apps can be unreliable depending on the HACS version and AppDaemon add-on configuration. Manual installation above is more predictable.
+
+> **AppDaemon must be installed first.**
+
+**Step 1 — Add the custom repository**
+
+1. In HACS → three-dot menu → **Custom repositories**
+2. Paste the repository URL
+3. Set the **Category to "AppDaemon"** — not "Integration" (that will fail with a compliance error)
+4. Click **ADD**, then find and install "Kermi HA Bridge"
+
+**Step 2 — Register the app in `apps.yaml`**
+
+Add to `/config/appdaemon/apps/apps.yaml`:
+
+```yaml
+kermi_bridge:
+  module: kermi_bridge.kermi_bridge
+  class: KermiBridge
+  em_config_path: /config/appdaemon/apps/kermi_bridge/config.yaml
+  # mqtt_discovery: true   # Uncomment to enable MQTT Discovery (requires MQTT broker)
+```
+
+**Step 3 — Create the config file**
+
+Copy `apps/kermi_bridge/config.yaml.example` to `/config/appdaemon/apps/kermi_bridge/config.yaml`, then edit it:
+
+```yaml
+kermi_bridge:
+  host: 192.168.1.121        # x-center IP address
+  password: "1234"           # web UI password (see unit sticker)
   poll_interval_s: 30
   circuits: [MK1, MK2]
 ```
