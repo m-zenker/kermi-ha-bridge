@@ -61,6 +61,31 @@ DEVICES_RUBIN = {
 }
 DEVICE_ID_RUBIN = "aaaa0001-0000-0000-0000-000000000000"
 DEVICE_ID_BUFFER = "bbbb0001-0000-0000-0000-000000000000"
+DEVICE_ID_BUFFER_DHW = "cccc0001-0000-0000-0000-000000000000"
+
+# Rubin firmware with split DT95 devices (separate Heating and DHW buffer systems).
+DEVICES_RUBIN_SPLIT = {
+    "ResponseData": [
+        {
+            "DeviceId": DEVICE_ID_RUBIN,
+            "DeviceType": 97,
+            "Name": "x-change dynamic pro",
+        },
+        {
+            "DeviceId": DEVICE_ID_BUFFER,
+            "DeviceType": 95,
+            "Name": "Heizen",
+            "CustomProperties": {"WizardAnswer": '{"BufferSystemType":2,"PowermoduleFunctionType":1}'},
+        },
+        {
+            "DeviceId": DEVICE_ID_BUFFER_DHW,
+            "DeviceType": 95,
+            "Name": "Trinkwassererwärmung",
+            "CustomProperties": {"WizardAnswer": '{"BufferSystemType":2,"PowermoduleFunctionType":2}'},
+        },
+    ],
+    "StatusCode": 0,
+}
 
 # Minimal GetConfigsByDeviceType responses — include only the entries needed for tests.
 CONFIGS_CLASSIC_DT2 = {
@@ -74,7 +99,7 @@ CONFIGS_RUBIN_DT97 = {
     "ResponseData": [
         {"WellKnownName": "Rubin_CombinedHeatpumpState", "DatapointConfigId": "f3966fa2-a25e-4cfe-a360-4749a0c5c1e0"},
         {"WellKnownName": "Rubin_CurrentCOP", "DatapointConfigId": "76b2a146-4cd6-477c-bf22-e420eeb51253"},
-        {"WellKnownName": "Rubin_IsDefrosting", "DatapointConfigId": "beff28be-32db-410d-b7ab-4304481e4b4a"},
+        {"WellKnownName": "Rubin_IsDefrostingState", "DatapointConfigId": "beff28be-32db-410d-b7ab-4304481e4b4a"},
     ],
     "StatusCode": 0,
 }
@@ -997,6 +1022,28 @@ class TestResolveGuids:
         # hot_water_temp resolved from BufferSystem (DeviceType=95)
         assert client._device_for("hot_water_temp") == DEVICE_ID_BUFFER
         # hp_state resolved from Rubin (DeviceType=97)
+        assert client._device_for("hp_state") == DEVICE_ID_RUBIN
+
+    @pytest.mark.asyncio
+    async def test_split_dt95_routes_twe_to_dhw_device(self):
+        """Two DT95 devices: TWE datapoints route to the DHW device (PowermoduleFunctionType=2)."""
+        session = _FakeSession(
+            post=[
+                _mock_response(LOGIN_OK),
+                _mock_response(CONFIGS_RUBIN_DT95),
+                _mock_response(CONFIGS_RUBIN_DT97),
+            ],
+            get=[_mock_response(DEVICES_RUBIN_SPLIT)],
+        )
+        client = _client_with_session(session)
+        await client.connect()
+
+        # TWE datapoints routed to the dedicated DHW device
+        assert client._device_for("hot_water_temp") == DEVICE_ID_BUFFER_DHW
+        assert client._device_for("dhw_setpoint") == DEVICE_ID_BUFFER_DHW
+        # Heating datapoints routed to the first DT95 (Heizen) via dtype_device fallback
+        assert client._device_for("buffer_temp") == DEVICE_ID_BUFFER
+        # HP datapoints routed to the DT97 device
         assert client._device_for("hp_state") == DEVICE_ID_RUBIN
 
 

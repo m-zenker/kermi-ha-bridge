@@ -14,6 +14,7 @@ All I/O methods re-authenticate automatically if the session has expired.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -88,7 +89,7 @@ _DP_TO_WKN: dict[str, list[str]] = {
     "outside_temp": ["VolWo_Temperature_Sensor_S1_Value", "Aussentemperatur"],
     "outside_temp_avg": ["Aussentemperatur_gemittelt"],
     "compressor_power_kw": ["HP_AktuelleMotorleistungKW", "Rubin_CurrentPowerInverter"],
-    "heating_output_kw": ["HP_HeatOutput", "Rubin_CalculatedPowerHeating"],
+    "heating_output_kw": ["HP_HeatOutput", "Rubin_CurrentOutputCapacity"],
     "cop": ["HP_TotalCOP", "Rubin_CurrentCOP"],
     "cop_heating_avg": ["HP_HeatingWaterAverageCOP"],
     "scop": ["HP_SCOPGesamt"],
@@ -110,8 +111,8 @@ _DP_TO_WKN: dict[str, list[str]] = {
     "wez2_operating_hours": ["X_Hours_Complete_Heatersys"],
     "wez1_betriebsart": ["HP_BivBWBivalenceControl"],
     "wez2_betriebsart": ["HP_BivHZBivalenceControl"],
-    "wp_return_temp": ["HP_EinlasstempLadekreis", "Rubin_SecondaryInletTemp"],
-    "wp_flow_temp_lc": ["HP_AuslasstempLadekreis", "Rubin_SecondaryOutletTemp"],
+    "wp_return_temp": ["HP_EinlasstempLadekreis", "Rubin_Link_B17_Ruecklauftemperatur_WP"],
+    "wp_flow_temp_lc": ["HP_AuslasstempLadekreis", "Rubin_Link_B16_Vorlauftemperatur_WP"],
     "cop_heating_live": ["HP_HeatingWaterCOP", "Rubin_CurrentCOPHeating"],
     "cop_dhw_live": ["HP_HotWaterCOP", "Rubin_CurrentCOPTwe"],
     "energy_mode_mk1": ["HP_EnergyModeHk1"],
@@ -124,12 +125,12 @@ _DP_TO_WKN: dict[str, list[str]] = {
     "heating_curve_shift_mk2": ["HPxyz_TemperatureAdjustMk2"],
     "heating_curve_shift_hk": ["HPxyz_TemperatureAdjustMk3"],
     # Rubin-only — no classic firmware equivalent; absent from _DP
-    "is_defrosting": ["Rubin_IsDefrosting"],
+    "is_defrosting": ["Rubin_IsDefrostingState"],
     "compressor_hours": ["Rubin_OperationHoursCompressor"],
     "modulation_pct": ["Rubin_CurrentOutputCapacityHeating"],
     "temp_spread": ["Rubin_TemperatureSpreadHeating"],
     "pv_available_power": ["Rubin_PvAvailablePower"],
-    "heater_power": ["BufferSystem_HeaterElectricalPower"],
+    "heater_power": ["BufferSystem_HeaterRequestedElectricalPower"],
 }
 
 _WEZ_TO_BETRIEBSART_DP = {1: "wez1_betriebsart", 2: "wez2_betriebsart"}
@@ -309,6 +310,7 @@ class KermiClient:
         self._dp: dict[str, str] = dict(_DP)  # per-instance; patched by _resolve_guids()
         self._dp_dtype: dict[str, int] = {}  # dp_key → DeviceType (set at connect)
         self._dtype_device: dict[int, str] = {}  # DeviceType → first DeviceId (set at connect)
+        self._dp_device: dict[str, str] = {}  # dp_key → specific DeviceId (overrides dtype routing)
 
     # ── Context manager ───────────────────────────────────────────────────────
 
@@ -335,6 +337,7 @@ class KermiClient:
         self._dp = dict(_DP)
         self._dp_dtype = {}
         self._dtype_device = {}
+        self._dp_device = {}
         for device in devices:
             dtype = device.get("DeviceType", 0)
             if dtype != 0:
@@ -394,6 +397,19 @@ class KermiClient:
                         wkn_to_guid[wkn] = guid.lower()
                         wkn_to_dtype[wkn] = dtype
 
+            # On Rubin firmware, DeviceType 95 has separate Heating and DHW device instances.
+            # PowermoduleFunctionType == 2 in WizardAnswer identifies the DHW (TWE) device.
+            dhw_device_id: str | None = None
+            for device in devices:
+                if device.get("DeviceType") == 95:
+                    wizard_str = (device.get("CustomProperties") or {}).get("WizardAnswer", "")
+                    if wizard_str:
+                        try:
+                            if json.loads(wizard_str).get("PowermoduleFunctionType") == 2:
+                                dhw_device_id = device["DeviceId"]
+                        except (ValueError, AttributeError):
+                            pass
+
             resolved = 0
             for dp_key, wkns in _DP_TO_WKN.items():
                 for wkn in wkns:
@@ -410,6 +426,8 @@ class KermiClient:
                             )
                         self._dp[dp_key] = live_guid
                         self._dp_dtype[dp_key] = wkn_to_dtype[wkn]
+                        if wkn_to_dtype[wkn] == 95 and "Twe" in wkn and dhw_device_id:
+                            self._dp_device[dp_key] = dhw_device_id
                         resolved += 1
                         break
 
@@ -423,6 +441,8 @@ class KermiClient:
 
     def _device_for(self, dp_key: str) -> str:
         """Return the DeviceId that owns dp_key, falling back to the primary device."""
+        if dp_key in self._dp_device:
+            return self._dp_device[dp_key]
         dtype = self._dp_dtype.get(dp_key)
         return self._dtype_device.get(dtype, self._device_id) if dtype else self._device_id
 
