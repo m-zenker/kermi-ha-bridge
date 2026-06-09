@@ -7,6 +7,25 @@ Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-06-09
+
+### Added
+- `kermi_client.py` — WKN-based GUID resolution at connect time (`_resolve_guids()`): queries `Datapoint/GetConfigsByDeviceType` for every discovered device type, builds a WKN→GUID map, and patches `self._dp` with live GUIDs before the first poll. Falls back silently to hardcoded GUIDs on any failure. Fixes all sensor reads on Rubin firmware where classic `HP_*` GUIDs are rejected.
+- `kermi_client.py` — `_DP_TO_WKN` table mapping each `dp_key` to an ordered WKN candidate list (classic first, Rubin/BufferSystem fallback); resolution picks the first WKN present in the live catalogue.
+- `kermi_client.py` — 6 new Rubin-only sensors added (not present on classic firmware; populated only after successful WKN resolution): `is_defrosting` (bool), `compressor_hours` (h), `modulation_pct` (kW heating output), `temp_spread`, `pv_available_power`, `heater_power` (W from external electric heater).
+- `kermi_bridge.py` — 6 new Rubin sensors included in MQTT Discovery, `_publish_sensors`, and `set_state` paths; appear as `unavailable` on classic firmware.
+- `diagnose_kermi.py` — Section 5: full `Datapoint/GetConfigsByDeviceType` catalogue dump per device type with WKN, DisplayName, Unit, and bridge match annotation; helps identify GUID mismatches and available datapoints on unknown firmware variants.
+
+### Fixed
+- `kermi_client.py` — five wrong Rubin WKN names corrected (caused silent resolution failures):
+  - `is_defrosting`: `Rubin_IsDefrosting` → `Rubin_IsDefrostingState`
+  - `heater_power`: `BufferSystem_HeaterElectricalPower` → `BufferSystem_HeaterRequestedElectricalPower`
+  - `heating_output_kw`: `Rubin_CalculatedPowerHeating` → `Rubin_CurrentOutputCapacity`
+  - `wp_return_temp`: `Rubin_SecondaryInletTemp` → `Rubin_Link_B17_Ruecklauftemperatur_WP`
+  - `wp_flow_temp_lc`: `Rubin_SecondaryOutletTemp` → `Rubin_Link_B16_Vorlauftemperatur_WP`
+- `kermi_client.py` — split DT95 device routing: Rubin systems with separate Heating and DHW buffer system devices (DeviceType=95) now route `BufferSystem_Twe*` reads to the correct DHW device. DHW device is identified via `PowermoduleFunctionType==2` in `CustomProperties.WizardAnswer`; falls back to first DT95 device on classic firmware.
+- `kermi_bridge.py` — `is_defrosting` published as string `"true"`/`"false"` (not `float(True)=1.0`) to satisfy the MQTT Discovery `binary_sensor` payload format.
+
 ## [0.11.0] — 2026-06-03
 
 ### Fixed
