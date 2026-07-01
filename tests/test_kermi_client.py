@@ -288,6 +288,9 @@ class TestReadSensors:
                 "energy_mode_mk1": 1,
                 "energy_mode_mk2": 1,
                 "energy_mode_hk": 1,
+                "global_alarm": False,
+                "alarm_number": 0,
+                "fan_power": 0.0,
             }
         )
         session = _FakeSession(post=[_mock_response(read_body)])
@@ -315,6 +318,9 @@ class TestReadSensors:
         assert sensors.temp_spread is None
         assert sensors.pv_available_power is None
         assert sensors.heater_power is None
+        assert sensors.global_alarm is False
+        assert sensors.alarm_number == 0
+        assert sensors.fan_power == pytest.approx(0.0)
 
     @pytest.mark.asyncio
     async def test_handles_missing_datapoints_gracefully(self):
@@ -1073,3 +1079,46 @@ class TestReadSensorsRubin:
 
         assert sensors.is_defrosting is True
         assert sensors.compressor_hours == pytest.approx(1234.5)
+
+
+# ── Global alarm & fan power ─────────────────────────────────────────────────
+
+
+class TestReadSensorsAlarmAndFan:
+    @pytest.mark.asyncio
+    async def test_alarm_active_with_fault_code(self):
+        read_body = _make_read_response({"global_alarm": True, "alarm_number": 42, "fan_power": 55.5})
+        session = _FakeSession(post=[_mock_response(read_body)])
+        client = _client_with_session(session, device_id=DEVICE_ID)
+        client._connected = True
+
+        sensors = await client.read_sensors()
+
+        assert sensors.global_alarm is True
+        assert sensors.alarm_number == 42
+        assert sensors.fan_power == pytest.approx(55.5)
+
+    @pytest.mark.asyncio
+    async def test_alarm_and_fan_none_when_datapoints_absent(self):
+        read_body = _make_read_response({"outside_temp": 5.0})
+        session = _FakeSession(post=[_mock_response(read_body)])
+        client = _client_with_session(session, device_id=DEVICE_ID)
+        client._connected = True
+
+        sensors = await client.read_sensors()
+
+        assert sensors.global_alarm is None
+        assert sensors.alarm_number is None
+        assert sensors.fan_power is None
+
+    def test_new_datapoint_guids_match_spec(self):
+        assert _DP["global_alarm"] == "df73b450-8665-446e-9119-82327b842b87"
+        assert _DP["alarm_number"] == "87a7fe74-493d-42ec-9661-51a5b3622414"
+        assert _DP["fan_power"] == "5f8144fc-bec7-46c3-b5f5-0fb6b1179c4e"
+
+    def test_new_sensors_have_no_wkn_alias(self):
+        from kermi_bridge.kermi_client import _DP_TO_WKN
+
+        assert _DP_TO_WKN["global_alarm"] == []
+        assert _DP_TO_WKN["alarm_number"] == []
+        assert _DP_TO_WKN["fan_power"] == []

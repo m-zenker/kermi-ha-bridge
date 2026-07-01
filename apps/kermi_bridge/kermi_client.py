@@ -69,6 +69,10 @@ _DP = {
     "wp_flow_temp_lc": "6576ccc5-048a-482e-ac0d-ef4dc0de16c4",
     "cop_heating_live": "cd908274-744c-45db-8ad2-564a4f81b210",
     "cop_dhw_live": "5d8bd3ad-7bf4-41ff-8883-82f0d5bc3548",
+    # Additional monitoring (read, level 10) — global alarm & fan
+    "global_alarm": "df73b450-8665-446e-9119-82327b842b87",
+    "alarm_number": "87a7fe74-493d-42ec-9661-51a5b3622414",
+    "fan_power": "5f8144fc-bec7-46c3-b5f5-0fb6b1179c4e",
     # Control (writable at user level 10)
     "energy_mode_mk1": "6879e0cf-d7d2-4809-8a72-f82dec836f19",
     "energy_mode_mk2": "adeda139-96e1-47f6-b3bd-025bb0f40e28",
@@ -115,6 +119,9 @@ _DP_TO_WKN: dict[str, list[str]] = {
     "wp_flow_temp_lc": ["HP_AuslasstempLadekreis", "Rubin_Link_B16_Vorlauftemperatur_WP"],
     "cop_heating_live": ["HP_HeatingWaterCOP", "Rubin_CurrentCOPHeating"],
     "cop_dhw_live": ["HP_HotWaterCOP", "Rubin_CurrentCOPTwe"],
+    "global_alarm": [],
+    "alarm_number": [],
+    "fan_power": [],
     "energy_mode_mk1": ["HP_EnergyModeHk1"],
     "energy_mode_mk2": ["HP_EnergyModeHk2"],
     "energy_mode_hk": ["HP_EnergyModeHk3"],
@@ -181,6 +188,9 @@ _READ_DATAPOINTS = [
     "wp_flow_temp_lc",
     "cop_heating_live",
     "cop_dhw_live",
+    "global_alarm",
+    "alarm_number",
+    "fan_power",
     # Rubin-only — present in self._dp only when resolved via WKN
     "is_defrosting",
     "compressor_hours",
@@ -255,6 +265,10 @@ class KermiSensors:
     wp_flow_temp_lc: float | None = None
     cop_heating_live: float | None = None
     cop_dhw_live: float | None = None
+    # Alarm / fan diagnostics
+    global_alarm: bool | None = None
+    alarm_number: int | None = None
+    fan_power: float | None = None
     # Rubin-only sensors (None on classic firmware)
     is_defrosting: bool | None = None
     compressor_hours: float | None = None
@@ -767,6 +781,9 @@ class KermiClient:
             wp_flow_temp_lc=_float("wp_flow_temp_lc"),
             cop_heating_live=_float("cop_heating_live"),
             cop_dhw_live=_float("cop_dhw_live"),
+            global_alarm=_bool("global_alarm"),
+            alarm_number=_int("alarm_number"),
+            fan_power=_float("fan_power"),
             is_defrosting=_bool("is_defrosting"),
             compressor_hours=_float("compressor_hours"),
             modulation_pct=_float("modulation_pct"),
