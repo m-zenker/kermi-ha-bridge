@@ -227,6 +227,8 @@ Sensors available on **all firmware**:
 | `sensor.kermi_hp_state` | Heat pump state (int; 1 = active) |
 | `sensor.kermi_smart_grid_status` | Smart grid status (int; 2 = normal) |
 | `binary_sensor.kermi_evu_lock` | EVU lock active |
+| `binary_sensor.kermi_global_alarm` | Heat pump alarm active (`alarm_number` attribute holds the fault code) |
+| `sensor.kermi_fan_power` | Fan power draw (%) |
 | `sensor.kermi_energy_mode_mk1` / `_mk2` / `_hk` | EnergyMode per circuit (ECO/NORMAL/COMFORT/CUSTOM) |
 | `sensor.kermi_bridge_status` | Bridge health (`ok` / `unavailable` / `auth_error`) |
 

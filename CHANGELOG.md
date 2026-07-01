@@ -7,6 +7,10 @@ Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
 ## [Unreleased]
 
+### Added
+- `kermi_client.py` — two new live-probed datapoints: `global_alarm` (bool, "Alarm active") and `fan_power` (float, %). `alarm_number` ("Alarm number", fault code) is also read but not exposed as its own entity.
+- `kermi_bridge.py` — `binary_sensor.kermi_global_alarm` (`device_class: problem`, `alarm_number` fault-code attribute) and `sensor.kermi_fan_power` (%, `mdi:fan`) published via both the MQTT Discovery path and the legacy `set_state` path.
+
 ## [0.12.0] — 2026-06-09
 
 ### Added
