@@ -90,6 +90,9 @@ def _make_sensors(**overrides) -> KermiSensors:
         wp_flow_temp_lc=42.1,
         cop_heating_live=3.8,
         cop_dhw_live=None,  # intentionally None to test unavailable path
+        global_alarm=False,
+        alarm_number=0,
+        fan_power=12.0,
     )
     defaults.update(overrides)
     return KermiSensors(**defaults)
@@ -958,3 +961,93 @@ class TestMqttCommandPath:
         assert len(self.scheduled) == 1
         asyncio.run(self.scheduled[0])
         mock_client.set_dhw_setpoint.assert_called_once_with(55.0)
+
+
+# ── TestGlobalAlarmAndFanPowerLegacy (legacy set_state path) ───────────────────────────────────
+
+
+class TestGlobalAlarmAndFanPowerLegacy:
+    def test_fan_power_published(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(fan_power=37.5)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "sensor.kermi_fan_power"]
+        assert calls and calls[-1]["state"] == "37.5"
+
+    def test_fan_power_unavailable_when_none(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(fan_power=None)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "sensor.kermi_fan_power"]
+        assert calls and calls[-1]["state"] == "unavailable"
+
+    def test_global_alarm_off(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(global_alarm=False, alarm_number=0)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "binary_sensor.kermi_global_alarm"]
+        assert calls and calls[-1]["state"] == "off"
+        assert calls[-1]["attributes"]["alarm_number"] == 0
+        assert calls[-1]["attributes"]["device_class"] == "problem"
+
+    def test_global_alarm_on_with_fault_code(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(global_alarm=True, alarm_number=42)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "binary_sensor.kermi_global_alarm"]
+        assert calls and calls[-1]["state"] == "on"
+        assert calls[-1]["attributes"]["alarm_number"] == 42
+
+    def test_global_alarm_unavailable_when_none(self, bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(global_alarm=None)
+        asyncio.run(bridge._poll({}))
+        calls = [c for c in bridge.set_state_calls if c["entity_id"] == "binary_sensor.kermi_global_alarm"]
+        assert calls and calls[-1]["state"] == "unavailable"
+        assert "alarm_number" not in calls[-1]["attributes"]
+
+
+# ── TestGlobalAlarmAndFanPowerMqtt ────────────────────────────────────────────────────────
+
+
+class TestGlobalAlarmAndFanPowerMqtt:
+    def test_discovery_published_for_fan_power_sensor(self, mqtt_bridge):
+        topics = [c.get("topic", "") for c in mqtt_bridge.call_service_calls]
+        assert "homeassistant/sensor/em_kermi_bridge_kermi_fan_power/config" in topics
+
+    def test_discovery_published_for_global_alarm_binary_sensor(self, mqtt_bridge):
+        topics = [c.get("topic", "") for c in mqtt_bridge.call_service_calls]
+        assert "homeassistant/binary_sensor/em_kermi_bridge_kermi_global_alarm/config" in topics
+
+    def test_global_alarm_discovery_has_json_attributes_topic(self, mqtt_bridge):
+        calls = [
+            c
+            for c in mqtt_bridge.call_service_calls
+            if c.get("topic") == "homeassistant/binary_sensor/em_kermi_bridge_kermi_global_alarm/config"
+            and c.get("payload")
+        ]
+        assert calls
+        payload = _json.loads(calls[0]["payload"])
+        assert payload["json_attributes_topic"].endswith("kermi_global_alarm/attributes")
+        assert payload["device_class"] == "problem"
+
+    def test_poll_publishes_fan_power_value(self, mqtt_bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(fan_power=63.0)
+        mqtt_bridge.call_service_calls.clear()
+        asyncio.run(mqtt_bridge._poll({}))
+        state_calls = [c for c in mqtt_bridge.call_service_calls if "kermi_fan_power/state" in c.get("topic", "")]
+        assert state_calls and state_calls[-1]["payload"] == "63.0"
+
+    def test_poll_publishes_global_alarm_on_with_attribute(self, mqtt_bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(global_alarm=True, alarm_number=7)
+        mqtt_bridge.call_service_calls.clear()
+        asyncio.run(mqtt_bridge._poll({}))
+        state_calls = [c for c in mqtt_bridge.call_service_calls if "kermi_global_alarm/state" in c.get("topic", "")]
+        assert state_calls and state_calls[-1]["payload"] == "ON"
+        attr_calls = [
+            c for c in mqtt_bridge.call_service_calls if "kermi_global_alarm/attributes" in c.get("topic", "")
+        ]
+        assert attr_calls
+        assert _json.loads(attr_calls[-1]["payload"])["alarm_number"] == 7
+
+    def test_poll_publishes_global_alarm_unavailable_when_none(self, mqtt_bridge, mock_client):
+        mock_client.read_sensors.return_value = _make_sensors(global_alarm=None)
+        mqtt_bridge.call_service_calls.clear()
+        asyncio.run(mqtt_bridge._poll({}))
+        state_calls = [c for c in mqtt_bridge.call_service_calls if "kermi_global_alarm/state" in c.get("topic", "")]
+        assert state_calls and state_calls[-1]["payload"] == "unavailable"

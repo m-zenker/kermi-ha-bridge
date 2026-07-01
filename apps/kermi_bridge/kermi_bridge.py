@@ -82,6 +82,8 @@ _ALL_SENSOR_ENTITIES = [
     "sensor.kermi_temp_spread",
     "sensor.kermi_pv_available_power",
     "sensor.kermi_heater_power",
+    "sensor.kermi_fan_power",
+    "binary_sensor.kermi_global_alarm",
 ]
 
 # Static HA attributes for each published entity (device_class, state_class, etc.).
@@ -159,6 +161,8 @@ _ENTITY_ATTRS: dict[str, dict] = {
         "unit_of_measurement": "kW",
     },
     "sensor.kermi_heater_power": {"device_class": "power", "state_class": "measurement", "unit_of_measurement": "kW"},
+    "sensor.kermi_fan_power": {"state_class": "measurement", "unit_of_measurement": "%"},
+    "binary_sensor.kermi_global_alarm": {"device_class": "problem"},
 }
 
 # MQTT sensor discovery config: (uid, name, unit, icon, device_class, state_class)
@@ -210,6 +214,7 @@ _SENSOR_DISCOVERY = [
     ("kermi_temp_spread", "Kermi Temperature Spread", "K", "mdi:thermometer-lines", None, "measurement"),
     ("kermi_pv_available_power", "Kermi PV Available Power", "kW", "mdi:solar-power", "power", "measurement"),
     ("kermi_heater_power", "Kermi Heater Power", "kW", "mdi:heat-wave", "power", "measurement"),
+    ("kermi_fan_power", "Kermi Fan Power", "%", "mdi:fan", None, "measurement"),
     # Note: kermi_bridge_status is published separately in _publish_mqtt_discovery()
     # because it requires a json_attrs_topic — do not add it here.
 ]
@@ -304,6 +309,13 @@ class KermiBridge(MQTTMixin, hass.Hass):
 
         # Binary sensor
         self._mqtt_publish_binary_sensor_discovery("kermi_evu_lock", "Kermi EVU Lock", "mdi:lock", "lock")
+        self._mqtt_publish_binary_sensor_discovery(
+            "kermi_global_alarm",
+            "Kermi Global Alarm",
+            "mdi:alert-circle",
+            "problem",
+            json_attrs_topic=self._attrs_topic("kermi_global_alarm"),
+        )
 
         # Energy mode selects: all 3 circuits are always published because every
         # Kermi circuit has an energy mode regardless of self._circuits config.
@@ -509,6 +521,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
             ("kermi_wp_flow_temp_lc", sensors.wp_flow_temp_lc),
             ("kermi_cop_heating_live", sensors.cop_heating_live),
             ("kermi_cop_dhw_live", sensors.cop_dhw_live),
+            ("kermi_fan_power", sensors.fan_power),
             ("kermi_compressor_hours", sensors.compressor_hours),
             ("kermi_modulation_pct", sensors.modulation_pct),
             ("kermi_temp_spread", sensors.temp_spread),
@@ -534,6 +547,14 @@ class KermiBridge(MQTTMixin, hass.Hass):
             "kermi_evu_lock",
             "unavailable" if evu is None else ("ON" if evu else "OFF"),
         )
+
+        # Global alarm binary sensor with alarm_number attribute (published only when known)
+        alarm = sensors.global_alarm
+        if alarm is None:
+            self._mqtt_set_sensor_raw("kermi_global_alarm", "unavailable")
+        else:
+            self._mqtt_set_sensor_raw("kermi_global_alarm", "ON" if alarm else "OFF")
+            self._mqtt_publish_sensor_attributes("kermi_global_alarm", {"alarm_number": sensors.alarm_number})
 
         # Energy mode selects
         for circuit, mode in [
@@ -586,6 +607,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
             ("sensor.kermi_wp_flow_temp_lc", sensors.wp_flow_temp_lc),
             ("sensor.kermi_cop_heating_live", sensors.cop_heating_live),
             ("sensor.kermi_cop_dhw_live", sensors.cop_dhw_live),
+            ("sensor.kermi_fan_power", sensors.fan_power),
             ("sensor.kermi_compressor_hours", sensors.compressor_hours),
             ("sensor.kermi_modulation_pct", sensors.modulation_pct),
             ("sensor.kermi_temp_spread", sensors.temp_spread),
@@ -613,6 +635,17 @@ class KermiBridge(MQTTMixin, hass.Hass):
             "binary_sensor.kermi_evu_lock",
             state="unavailable" if evu is None else ("on" if evu else "off"),
             attributes=_ENTITY_ATTRS["binary_sensor.kermi_evu_lock"],
+        )
+
+        # Global alarm binary sensor with alarm_number attribute (published only when known)
+        alarm = sensors.global_alarm
+        alarm_attrs = dict(_ENTITY_ATTRS["binary_sensor.kermi_global_alarm"])
+        if alarm is not None:
+            alarm_attrs["alarm_number"] = sensors.alarm_number
+        self.set_state(
+            "binary_sensor.kermi_global_alarm",
+            state="unavailable" if alarm is None else ("on" if alarm else "off"),
+            attributes=alarm_attrs,
         )
 
         # Energy mode sensors

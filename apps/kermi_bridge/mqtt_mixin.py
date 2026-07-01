@@ -40,9 +40,7 @@ class MQTTMixin:
         return f"{self._mqtt_prefix}/energy_manager/{self._mqtt_slug}/sensor/{uid}/state"
 
     def _attrs_topic(self, uid: str) -> str:
-        return (
-            f"{self._mqtt_prefix}/energy_manager/{self._mqtt_slug}/sensor/{uid}/attributes"
-        )
+        return f"{self._mqtt_prefix}/energy_manager/{self._mqtt_slug}/sensor/{uid}/attributes"
 
     def _cmd_topic(self, platform: str, uid: str) -> str:
         return f"{self._mqtt_prefix}/energy_manager/{self._mqtt_slug}/{platform}/{uid}/set"
@@ -102,7 +100,7 @@ class MQTTMixin:
         self._mqtt_publish(self._discovery_topic("sensor", uid), json.dumps(payload))
 
     def _mqtt_publish_binary_sensor_discovery(
-        self, uid: str, name: str, icon: str, dc: str | None
+        self, uid: str, name: str, icon: str, dc: str | None, json_attrs_topic: str | None = None
     ) -> None:
         scoped_uid = f"{self._mqtt_device['identifiers'][0]}_{uid}"
         payload: dict = {
@@ -118,6 +116,8 @@ class MQTTMixin:
         }
         if dc:
             payload["device_class"] = dc
+        if json_attrs_topic:
+            payload["json_attributes_topic"] = json_attrs_topic
         self._mqtt_publish(self._discovery_topic("binary_sensor", uid), json.dumps(payload))
 
     def _mqtt_publish_button_discovery(self, uid: str, name: str, icon: str) -> None:
@@ -163,9 +163,7 @@ class MQTTMixin:
         }
         self._mqtt_publish(self._discovery_topic("number", uid), json.dumps(payload))
 
-    def _mqtt_publish_select_discovery(
-        self, uid: str, name: str, options: list[str], icon: str
-    ) -> None:
+    def _mqtt_publish_select_discovery(self, uid: str, name: str, options: list[str], icon: str) -> None:
         scoped_uid = f"{self._mqtt_device['identifiers'][0]}_{uid}"
         payload: dict = {
             "name": name,
