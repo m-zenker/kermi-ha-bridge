@@ -152,6 +152,7 @@ def mock_client():
     client.read_sensors = AsyncMock(return_value=_make_sensors())
     client.set_energy_mode = AsyncMock()
     client.set_dhw_setpoint = AsyncMock()
+    client.set_dhw_oneshot_setpoint = AsyncMock()
     client.trigger_dhw_oneshot = AsyncMock()
     client.set_quiet_mode = AsyncMock()
     client.set_heating_curve_shift = AsyncMock()
@@ -188,6 +189,7 @@ class TestInitialize:
         expected = [
             "kermi_bridge/set_energy_mode",
             "kermi_bridge/set_dhw_setpoint",
+            "kermi_bridge/set_dhw_oneshot_setpoint",
             "kermi_bridge/trigger_dhw_oneshot",
             "kermi_bridge/set_quiet_mode",
             "kermi_bridge/set_heating_curve_shift",
@@ -544,6 +546,29 @@ class TestSetDhwSetpoint:
 # ── TestTriggerDhwOneshot ─────────────────────────────────────────────────────
 
 
+class TestSetDhwOneshotSetpoint:
+    def test_svc_oneshot_setpoint_valid(self, bridge, mock_client):
+        asyncio.run(bridge._svc_set_dhw_oneshot_setpoint(None, None, None, {"temperature": 52.0}))
+        mock_client.set_dhw_oneshot_setpoint.assert_called_once_with(52.0)
+
+    def test_svc_oneshot_setpoint_out_of_range(self, bridge, mock_client):
+        asyncio.run(bridge._svc_set_dhw_oneshot_setpoint(None, None, None, {"temperature": 100.0}))
+        mock_client.set_dhw_oneshot_setpoint.assert_not_called()
+
+    def test_svc_oneshot_setpoint_missing_argument(self, bridge, mock_client):
+        asyncio.run(bridge._svc_set_dhw_oneshot_setpoint(None, None, None, {}))
+        mock_client.set_dhw_oneshot_setpoint.assert_not_called()
+
+    def test_svc_oneshot_setpoint_write_error_swallowed(self, bridge, mock_client):
+        mock_client.set_dhw_oneshot_setpoint.side_effect = KermiWriteError("write failed")
+        asyncio.run(bridge._svc_set_dhw_oneshot_setpoint(None, None, None, {"temperature": 52.0}))
+        assert any("[ERROR]" in m for m in bridge._log_output)
+
+    def test_svc_oneshot_setpoint_nan_rejected(self, bridge, mock_client):
+        asyncio.run(bridge._svc_set_dhw_oneshot_setpoint(None, None, None, {"temperature": "nan"}))
+        mock_client.set_dhw_oneshot_setpoint.assert_not_called()
+
+
 class TestTriggerDhwOneshot:
     def test_calls_client(self, bridge, mock_client):
         asyncio.run(bridge._svc_trigger_dhw_oneshot(None, None, None, {}))
@@ -700,7 +725,7 @@ class TestMqttInitialize:
         assert mqtt_bridge.registered_services == {}
 
     def test_services_registered_in_legacy_mode(self, bridge):
-        assert len(bridge.registered_services) == 7
+        assert len(bridge.registered_services) == 8
 
     def test_discovery_published_for_sensors(self, mqtt_bridge):
         topics = [c.get("topic", "") for c in mqtt_bridge.call_service_calls]
@@ -741,6 +766,16 @@ class TestMqttInitialize:
         assert payload["min"] == 0
         assert payload["max"] == 85
 
+    def test_dhw_oneshot_setpoint_number_discovery(self, mqtt_bridge):
+        topic = "homeassistant/number/em_kermi_bridge_kermi_dhw_oneshot_setpoint/config"
+        calls = [c for c in mqtt_bridge.call_service_calls if c.get("topic") == topic and c.get("payload")]
+        assert calls
+        payload = _json.loads(calls[0]["payload"])
+        assert payload["min"] == 0
+        assert payload["max"] == 85
+        assert payload["step"] == 0.5
+        assert payload["unit_of_measurement"] == "°C"
+
     def test_heating_curve_shift_per_circuit(self, mqtt_bridge):
         topics = [c.get("topic", "") for c in mqtt_bridge.call_service_calls]
         # config has circuits: [MK1, MK2]
@@ -768,6 +803,7 @@ class TestMqttInitialize:
         topics = {e.get("topic") for e in mqtt_bridge.listen_event_calls}
         assert any("kermi_energy_mode_mk1" in t for t in topics)
         assert any("kermi_dhw_setpoint" in t for t in topics)
+        assert any("kermi_dhw_oneshot_setpoint" in t for t in topics)
         assert any("kermi_quiet_mode" in t for t in topics)
 
 
@@ -819,6 +855,19 @@ class TestMqttPoll:
         offline = [c for c in mqtt_bridge.call_service_calls if c.get("payload") == "offline"]
         assert offline
 
+    def test_poll_publishes_oneshot_setpoint_state(self, mqtt_bridge):
+        mqtt_bridge._mqtt_publish_sensors(_make_sensors(dhw_oneshot_setpoint=52.0))
+        assert any(
+            c.get("topic", "").endswith("kermi_dhw_oneshot_setpoint/state") and c.get("payload") == "52.0"
+            for c in mqtt_bridge.call_service_calls
+        )
+
+    def test_poll_skips_oneshot_setpoint_when_none(self, mqtt_bridge):
+        before = len(mqtt_bridge.call_service_calls)
+        mqtt_bridge._mqtt_publish_sensors(_make_sensors(dhw_oneshot_setpoint=None))
+        new = mqtt_bridge.call_service_calls[before:]
+        assert not any("kermi_dhw_oneshot_setpoint" in c.get("topic", "") for c in new)
+
 
 # ── TestMqttCommandHandlers ───────────────────────────────────────────────────
 
@@ -845,6 +894,21 @@ class TestMqttCommandHandlers:
     def test_dhw_setpoint_cmd_invalid_payload_logs_error(self, mqtt_bridge, mock_client):
         mqtt_bridge._on_cmd_dhw_setpoint({"payload": "not-a-number"})
         assert any("[ERROR]" in m for m in mqtt_bridge._log_output)
+
+    def test_oneshot_setpoint_cmd_calls_client(self, mqtt_bridge, mock_client):
+        asyncio.run(mqtt_bridge._do_set_dhw_oneshot_setpoint(52.0))
+        mock_client.set_dhw_oneshot_setpoint.assert_called_once_with(52.0)
+
+    def test_oneshot_setpoint_cmd_out_of_range_logs_error(self, mqtt_bridge, mock_client):
+        mqtt_bridge._on_cmd_dhw_oneshot_setpoint({"payload": "100"})
+        assert any("[ERROR]" in m for m in mqtt_bridge._log_output)
+        mock_client.set_dhw_oneshot_setpoint.assert_not_called()
+
+    @pytest.mark.parametrize("bad", ["not-a-number", "", "nan"])
+    def test_oneshot_setpoint_cmd_invalid_payload_logs_error(self, mqtt_bridge, mock_client, bad):
+        mqtt_bridge._on_cmd_dhw_oneshot_setpoint({"payload": bad})
+        assert any("[ERROR]" in m for m in mqtt_bridge._log_output)
+        mock_client.set_dhw_oneshot_setpoint.assert_not_called()
 
     def test_quiet_mode_on(self, mqtt_bridge, mock_client):
         asyncio.run(mqtt_bridge._do_set_quiet_mode(True))
@@ -961,6 +1025,19 @@ class TestMqttCommandPath:
         assert len(self.scheduled) == 1
         asyncio.run(self.scheduled[0])
         mock_client.set_dhw_setpoint.assert_called_once_with(55.0)
+
+    def test_dhw_oneshot_setpoint_valid_schedules_and_calls_client(self, mqtt_bridge, mock_client):
+        mqtt_bridge._on_cmd_dhw_oneshot_setpoint({"payload": "52.5"})
+        assert len(self.scheduled) == 1
+        asyncio.run(self.scheduled[0])
+        mock_client.set_dhw_oneshot_setpoint.assert_called_once_with(52.5)
+
+    def test_dhw_oneshot_setpoint_cooldown(self, mqtt_bridge):
+        mqtt_bridge._on_cmd_dhw_oneshot_setpoint({"payload": "52"})
+        mqtt_bridge._on_cmd_dhw_oneshot_setpoint({"payload": "52"})
+        assert len(self.scheduled) == 1
+        for coro in self.scheduled:
+            coro.close()
 
 
 # ── TestGlobalAlarmAndFanPowerLegacy (legacy set_state path) ───────────────────────────────────

@@ -349,6 +349,17 @@ class KermiBridge(MQTTMixin, hass.Hass):
             "mdi:water-thermometer",
         )
 
+        # DHW one-shot setpoint number (target for the single boost; trigger is separate)
+        self._mqtt_publish_number_discovery(
+            "kermi_dhw_oneshot_setpoint",
+            "Kermi DHW One-shot Setpoint",
+            "°C",
+            0,
+            85,
+            0.5,
+            "mdi:water-thermometer-outline",
+        )
+
         # Heating curve shift numbers: only for circuits in self._circuits config.
         # States are published optimistically after each successful set command.
         # HA shows "unknown" until the first command — the API does not return these
@@ -397,6 +408,13 @@ class KermiBridge(MQTTMixin, hass.Hass):
             lambda event, data, kwargs: self._on_cmd_dhw_setpoint(data),
         )
 
+        # DHW one-shot setpoint
+        self._mqtt_subscribe_command(
+            "number",
+            "kermi_dhw_oneshot_setpoint",
+            lambda event, data, kwargs: self._on_cmd_dhw_oneshot_setpoint(data),
+        )
+
         # Heating curve shift per configured circuit
         for circuit in self._circuits:
             uid = f"kermi_heating_curve_shift_{circuit.lower()}"
@@ -428,6 +446,7 @@ class KermiBridge(MQTTMixin, hass.Hass):
     def _register_services(self) -> None:
         self.register_service("kermi_bridge/set_energy_mode", self._svc_set_energy_mode)
         self.register_service("kermi_bridge/set_dhw_setpoint", self._svc_set_dhw_setpoint)
+        self.register_service("kermi_bridge/set_dhw_oneshot_setpoint", self._svc_set_dhw_oneshot_setpoint)
         self.register_service("kermi_bridge/trigger_dhw_oneshot", self._svc_trigger_dhw_oneshot)
         self.register_service("kermi_bridge/set_quiet_mode", self._svc_set_quiet_mode)
         self.register_service("kermi_bridge/set_heating_curve_shift", self._svc_set_heating_curve_shift)
@@ -533,6 +552,11 @@ class KermiBridge(MQTTMixin, hass.Hass):
                 self._mqtt_set_sensor_raw(uid, "unavailable")
             else:
                 self._mqtt_set_sensor(uid, value)
+
+        # One-shot setpoint number: publish read-back only when known (an "unavailable"
+        # payload cannot be parsed by an HA MQTT number entity)
+        if sensors.dhw_oneshot_setpoint is not None:
+            self._mqtt_set_sensor("kermi_dhw_oneshot_setpoint", sensors.dhw_oneshot_setpoint)
 
         # Boolean sensor: true/false string (not float via _mqtt_set_sensor)
         defrost = sensors.is_defrosting
@@ -753,6 +777,28 @@ class KermiBridge(MQTTMixin, hass.Hass):
         except KermiError as exc:
             self.log(f"set_dhw_setpoint failed: {exc}", level="ERROR")
 
+    def _on_cmd_dhw_oneshot_setpoint(self, data: dict) -> None:
+        payload = data.get("payload", "")
+        try:
+            temp = float(payload)
+        except (TypeError, ValueError):
+            self.log(f"set_dhw_oneshot_setpoint: invalid payload '{payload}'", level="ERROR")
+            return
+        if not (0 <= temp <= 85):
+            self.log(f"set_dhw_oneshot_setpoint: {temp} out of range [0–85]", level="ERROR")
+            return
+        if not self._cmd_allowed(f"dhw_oneshot_setpoint:{temp}"):
+            return
+        asyncio.run_coroutine_threadsafe(self._do_set_dhw_oneshot_setpoint(temp), self._loop)
+
+    async def _do_set_dhw_oneshot_setpoint(self, temp: float) -> None:
+        try:
+            await self._client.set_dhw_oneshot_setpoint(temp)
+            # Optimistic state update; the poll read-back overwrites it
+            self._mqtt_set_sensor("kermi_dhw_oneshot_setpoint", temp)
+        except KermiError as exc:
+            self.log(f"set_dhw_oneshot_setpoint failed: {exc}", level="ERROR")
+
     def _on_cmd_dhw_oneshot(self, data: dict) -> None:
         if not self._cmd_allowed("dhw_oneshot"):
             return
@@ -843,6 +889,24 @@ class KermiBridge(MQTTMixin, hass.Hass):
             await self._client.set_dhw_setpoint(temp)
         except KermiError as exc:
             self.log(f"set_dhw_setpoint failed: {exc}", level="ERROR")
+
+    async def _svc_set_dhw_oneshot_setpoint(self, namespace, domain, service, kwargs) -> None:
+        temp = kwargs.get("temperature")
+        if temp is None:
+            self.log("set_dhw_oneshot_setpoint: temperature is required", level="ERROR")
+            return
+        try:
+            temp = float(temp)
+        except (TypeError, ValueError):
+            self.log(f"set_dhw_oneshot_setpoint: invalid temperature: {temp!r}", level="ERROR")
+            return
+        if not (0 <= temp <= 85):
+            self.log(f"set_dhw_oneshot_setpoint: {temp} out of range [0–85]", level="ERROR")
+            return
+        try:
+            await self._client.set_dhw_oneshot_setpoint(temp)
+        except KermiError as exc:
+            self.log(f"set_dhw_oneshot_setpoint failed: {exc}", level="ERROR")
 
     async def _svc_trigger_dhw_oneshot(self, namespace, domain, service, kwargs) -> None:
         try:
