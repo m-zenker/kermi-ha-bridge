@@ -9,6 +9,7 @@ import aiohttp
 import pytest
 from kermi_bridge.kermi_client import (
     _DP,
+    _DP_TO_WKN,
     _TYPE_BOOL,
     _TYPE_FLOAT,
     _TYPE_INT,
@@ -586,6 +587,98 @@ class TestSetDhwSetpoint:
         await client.set_dhw_setpoint(85.0)
         payload = session.post.call_args.kwargs.get("json") or session.post.call_args.args[1]
         assert payload["DatapointValues"][0]["Value"] == pytest.approx(85.0)
+
+
+class TestSetDhwOneshotSetpoint:
+    _make_client = TestSetDhwSetpoint._make_client
+
+    @pytest.mark.asyncio
+    async def test_success_sends_float_payload(self):
+        client, session = self._make_client(_make_write_response(0))
+        await client.set_dhw_oneshot_setpoint(52.0)
+        payload = session.post.call_args.kwargs.get("json") or session.post.call_args.args[1]
+        dp = payload["DatapointValues"][0]
+        assert dp["$type"] == _TYPE_FLOAT
+        assert dp["DatapointConfigId"] == _DP["dhw_oneshot_setpoint"]
+        assert dp["DeviceId"] == DEVICE_ID
+        assert dp["Value"] == pytest.approx(52.0)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad", [-0.1, 85.1])
+    async def test_out_of_range_raises_without_http(self, bad):
+        client, session = self._make_client(_make_write_response(0))
+        with pytest.raises(ValueError, match="out of range"):
+            await client.set_dhw_oneshot_setpoint(bad)
+        session.post.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ok", [0.0, 85.0])
+    async def test_boundaries_accepted(self, ok):
+        client, session = self._make_client(_make_write_response(0))
+        await client.set_dhw_oneshot_setpoint(ok)
+        payload = session.post.call_args.kwargs.get("json") or session.post.call_args.args[1]
+        assert payload["DatapointValues"][0]["Value"] == pytest.approx(ok)
+
+    @pytest.mark.asyncio
+    async def test_failed_write_raises(self):
+        client, _ = self._make_client(_make_write_response(1, "Schreiben nicht erlaubt."))
+        with pytest.raises(KermiWriteError, match="WriteValues failed"):
+            await client.set_dhw_oneshot_setpoint(52.0)
+
+    def test_wkn_list_registered(self):
+        assert "BufferSystem_OneTimeTweSetpoint" in _DP_TO_WKN["dhw_oneshot_setpoint"]
+        assert "HP_TWESollEinmal" in _DP_TO_WKN["dhw_oneshot_setpoint"]
+
+    @pytest.mark.asyncio
+    async def test_oneshot_setpoint_wkn_overrides_fallback_guid(self):
+        guid = "3bce582f-eba8-4cf5-8e1a-5674d95173bc"
+        configs_dt95 = {
+            "ResponseData": CONFIGS_RUBIN_DT95["ResponseData"]
+            + [{"WellKnownName": "BufferSystem_OneTimeTweSetpoint", "DatapointConfigId": guid}],
+            "StatusCode": 0,
+        }
+        session = _FakeSession(
+            post=[_mock_response(LOGIN_OK), _mock_response(configs_dt95), _mock_response(CONFIGS_RUBIN_DT97)],
+            get=[_mock_response(DEVICES_RUBIN_SPLIT)],
+        )
+        client = _client_with_session(session)
+        await client.connect()
+        assert client._dp["dhw_oneshot_setpoint"] == guid
+        assert client._device_for("dhw_oneshot_setpoint") == DEVICE_ID_BUFFER_DHW
+
+    @pytest.mark.asyncio
+    async def test_rubin_without_oneshot_wkn_reads_none(self):
+        session = _FakeSession(
+            post=[
+                _mock_response(LOGIN_OK),
+                _mock_response(CONFIGS_RUBIN_DT95),
+                _mock_response(CONFIGS_RUBIN_DT97),
+                _mock_response(_make_read_response({"outside_temp": 5.0})),
+            ],
+            get=[_mock_response(DEVICES_RUBIN_SPLIT)],
+        )
+        client = _client_with_session(session)
+        await client.connect()
+        sensors = await client.read_sensors()
+        assert sensors.dhw_oneshot_setpoint is None
+
+    @pytest.mark.asyncio
+    async def test_read_back_populated(self):
+        read_body = _make_read_response({"dhw_oneshot_setpoint": 50.0})
+        session = _FakeSession(post=[_mock_response(read_body)])
+        client = _client_with_session(session, device_id=DEVICE_ID)
+        client._connected = True
+        sensors = await client.read_sensors()
+        assert sensors.dhw_oneshot_setpoint == pytest.approx(50.0)
+
+    @pytest.mark.asyncio
+    async def test_read_back_none_when_absent(self):
+        read_body = _make_read_response({"outside_temp": 5.0})
+        session = _FakeSession(post=[_mock_response(read_body)])
+        client = _client_with_session(session, device_id=DEVICE_ID)
+        client._connected = True
+        sensors = await client.read_sensors()
+        assert sensors.dhw_oneshot_setpoint is None
 
 
 # ── trigger_dhw_oneshot ───────────────────────────────────────────────────────

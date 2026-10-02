@@ -73,6 +73,7 @@ _DP = {
     "global_alarm": "df73b450-8665-446e-9119-82327b842b87",
     "alarm_number": "87a7fe74-493d-42ec-9661-51a5b3622414",
     "fan_power": "5f8144fc-bec7-46c3-b5f5-0fb6b1179c4e",
+    "dhw_oneshot_setpoint": "83049eb3-7f02-4032-98e4-7b39dfc9252d",  # float °C [0–85]
     # Control (writable at user level 10)
     "energy_mode_mk1": "6879e0cf-d7d2-4809-8a72-f82dec836f19",
     "energy_mode_mk2": "adeda139-96e1-47f6-b3bd-025bb0f40e28",
@@ -122,6 +123,7 @@ _DP_TO_WKN: dict[str, list[str]] = {
     "global_alarm": [],
     "alarm_number": [],
     "fan_power": [],
+    "dhw_oneshot_setpoint": ["HP_TWESollEinmal", "BufferSystem_OneTimeTweSetpoint"],
     "energy_mode_mk1": ["HP_EnergyModeHk1"],
     "energy_mode_mk2": ["HP_EnergyModeHk2"],
     "energy_mode_hk": ["HP_EnergyModeHk3"],
@@ -191,6 +193,7 @@ _READ_DATAPOINTS = [
     "global_alarm",
     "alarm_number",
     "fan_power",
+    "dhw_oneshot_setpoint",
     # Rubin-only — present in self._dp only when resolved via WKN
     "is_defrosting",
     "compressor_hours",
@@ -269,6 +272,7 @@ class KermiSensors:
     global_alarm: bool | None = None
     alarm_number: int | None = None
     fan_power: float | None = None
+    dhw_oneshot_setpoint: float | None = None
     # Rubin-only sensors (None on classic firmware)
     is_defrosting: bool | None = None
     compressor_hours: float | None = None
@@ -581,6 +585,34 @@ class KermiClient:
             )
         _LOGGER.debug("Kermi: DHW setpoint set to %s°C", temp)
 
+    async def set_dhw_oneshot_setpoint(self, temp: float) -> None:
+        """Set the target temperature for the single DHW boost (one-shot).
+
+        Does not start a cycle; use trigger_dhw_oneshot for that.
+
+        Args:
+            temp: Target temperature in °C. Must be in the range [0, 85].
+        """
+        await self._ensure_connected()
+        if not (0 <= temp <= 85):
+            raise ValueError(f"DHW one-shot setpoint {temp} out of range [0, 85]")
+        payload = {
+            "DatapointValues": [
+                {
+                    "$type": _TYPE_FLOAT,
+                    "DatapointConfigId": self._dp["dhw_oneshot_setpoint"],
+                    "DeviceId": self._device_for("dhw_oneshot_setpoint"),
+                    "Value": float(temp),
+                }
+            ]
+        }
+        data = await self._post("Datapoint/WriteValues", payload)
+        if data.get("StatusCode", 1) != 0:
+            raise KermiWriteError(
+                f"WriteValues failed: {data.get('DisplayText')} ({(data.get('ExceptionData') or {}).get('ErrorCode')})"
+            )
+        _LOGGER.debug("Kermi: DHW one-shot setpoint set to %s°C", temp)
+
     async def trigger_dhw_oneshot(self) -> None:
         """Trigger a single domestic hot water boost cycle."""
         await self._ensure_connected()
@@ -784,6 +816,7 @@ class KermiClient:
             global_alarm=_bool("global_alarm"),
             alarm_number=_int("alarm_number"),
             fan_power=_float("fan_power"),
+            dhw_oneshot_setpoint=_float("dhw_oneshot_setpoint"),
             is_defrosting=_bool("is_defrosting"),
             compressor_hours=_float("compressor_hours"),
             modulation_pct=_float("modulation_pct"),
