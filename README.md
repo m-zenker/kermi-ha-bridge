@@ -229,7 +229,6 @@ Sensors available on **all firmware**:
 | `binary_sensor.kermi_evu_lock` | EVU lock active |
 | `binary_sensor.kermi_global_alarm` | Heat pump alarm active (`alarm_number` attribute holds the fault code) |
 | `sensor.kermi_fan_power` | Fan power draw (%) |
-| `number.em_kermi_bridge_kermi_dhw_oneshot_setpoint` | DHW one-shot setpoint (°C, 0–85, step 0.5); writable via `number.set_value` in MQTT mode. Does not start a cycle — press the one-shot button. The bridge does not clamp; the ~54 °C heat-pump-only tank ceiling is the caller's concern |
 | `sensor.kermi_energy_mode_mk1` / `_mk2` / `_hk` | EnergyMode per circuit (ECO/NORMAL/COMFORT/CUSTOM) |
 | `sensor.kermi_bridge_status` | Bridge health (`ok` / `unavailable` / `auth_error`) |
 
@@ -243,6 +242,8 @@ Sensors available on **Rubin / x-change dynamic pro firmware only** (show `unava
 | `sensor.kermi_temp_spread` | Flow/return temperature spread (K) |
 | `sensor.kermi_pv_available_power` | PV power available to the heat pump (kW) |
 | `sensor.kermi_heater_power` | Electric heater power draw (kW) |
+
+**DHW one-shot setpoint (number control):** `number.em_kermi_bridge_kermi_dhw_oneshot_setpoint` (°C, 0–85, step 0.5; write via `number.set_value` in MQTT mode). It only stores the target and does not start a cycle; use the `trigger_dhw_oneshot` service or its button entity. Per the controller's documentation (not live-tested), once "TWE Einmalladung" is active the tank heats to this setpoint and the function then deactivates itself. Confirmed on classic firmware (`HP_TWESollEinmal`); the Rubin datapoint (`BufferSystem_OneTimeTweSetpoint`) is listed in Kermi's public WKN master file but not live-verified. The bridge does not clamp; the ~54 °C heat-pump-only ceiling is a caller concern.
 
 ---
 
