@@ -243,7 +243,7 @@ Sensors available on **Rubin / x-change dynamic pro firmware only** (show `unava
 | `sensor.kermi_pv_available_power` | PV power available to the heat pump (kW) |
 | `sensor.kermi_heater_power` | Electric heater power draw (kW) |
 
-**DHW one-shot setpoint (number control):** `number.em_kermi_bridge_kermi_dhw_oneshot_setpoint` (°C, 0–85, step 0.5; write via `number.set_value` in MQTT mode). It only stores the target and does not start a cycle; use the `trigger_dhw_oneshot` service or its button entity. Per the controller's documentation (not live-tested), once "TWE Einmalladung" is active the tank heats to this setpoint and the function then deactivates itself. Confirmed on classic firmware (`HP_TWESollEinmal`); the Rubin datapoint (`BufferSystem_OneTimeTweSetpoint`) is listed in Kermi's public WKN master file but not live-verified. The bridge does not clamp; the ~54 °C heat-pump-only ceiling is a caller concern.
+**DHW one-shot setpoint (number control):** `number.heizungskeller_em_kermi_bridge_kermi_dhw_one_shot_setpoint` (°C, 0–85, step 0.5; write via `number.set_value` in MQTT mode; the `heizungskeller_` prefix is the device's HA area and differs per install). It only stores the target and does not start a cycle; use the `trigger_dhw_oneshot` service or its button entity. Per the controller's documentation (not live-tested), once "TWE Einmalladung" is active the tank heats to this setpoint and the function then deactivates itself. Confirmed on classic firmware (`HP_TWESollEinmal`); the Rubin datapoint (`BufferSystem_OneTimeTweSetpoint`) is listed in Kermi's public WKN master file but not live-verified. The bridge does not clamp; the ~54 °C heat-pump-only ceiling is a caller concern.
 
 ---
 
@@ -255,7 +255,7 @@ Sensors available on **Rubin / x-change dynamic pro firmware only** (show `unava
 | `kermi_bridge/refresh` | — | Force an immediate poll |
 | `kermi_bridge/set_dhw_setpoint` | `temperature` (float, °C) | Sets DHW tank setpoint (0–85 °C) |
 | `kermi_bridge/trigger_dhw_oneshot` | — | Triggers a one-shot DHW heat cycle |
-| `kermi_bridge/set_dhw_oneshot_setpoint` | `temperature` (float, °C) | Sets the one-shot DHW target (0–85 °C). Legacy mode only (`mqtt_discovery: false`); in MQTT mode use `number.em_kermi_bridge_kermi_dhw_oneshot_setpoint`. Does not start a cycle — use `trigger_dhw_oneshot`. Heat-pump-only ceiling (~54 °C) is a caller concern |
+| `kermi_bridge/set_dhw_oneshot_setpoint` | `temperature` (float, °C) | Sets the one-shot DHW target (0–85 °C). Legacy mode only (`mqtt_discovery: false`); in MQTT mode use `number.heizungskeller_em_kermi_bridge_kermi_dhw_one_shot_setpoint`. Does not start a cycle — use `trigger_dhw_oneshot`. Heat-pump-only ceiling (~54 °C) is a caller concern |
 | `kermi_bridge/set_quiet_mode` | `enabled` (bool) | Enables/disables compressor quiet mode |
 | `kermi_bridge/set_heating_curve_shift` | `shift` (int, K), `circuits` (optional) | Parallel-shifts the heating curve for the specified circuit(s) |
 

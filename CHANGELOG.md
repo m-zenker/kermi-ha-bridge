@@ -9,7 +9,7 @@ Versions align with the kermi_bridge subsystem releases in `ha-energy-manager`.
 
 ### Added
 - `kermi_client.py` — `set_dhw_oneshot_setpoint(temp)` (float °C, 0–85) writes the one-shot DHW target (WKN `HP_TWESollEinmal`, live-confirmed on classic firmware; Rubin `BufferSystem_OneTimeTweSetpoint` from Kermi's WKN master file, not live-verified); read-back `dhw_oneshot_setpoint` is published each poll. Writing it does not start a cycle; per the controller's documentation (not live-tested) it heats to the target once "TWE Einmalladung" is activated, then deactivates the function. No clamp at 54 °C — the heat-pump-only ceiling is a caller concern.
-- `kermi_bridge.py` — `number.em_kermi_bridge_kermi_dhw_oneshot_setpoint` (uid `kermi_dhw_oneshot_setpoint`, °C, 0–85, step 0.5) via MQTT Discovery, and AppDaemon service `kermi_bridge/set_dhw_oneshot_setpoint` (`temperature`), registered only in legacy mode (`mqtt_discovery: false`); in MQTT mode the number entity is the write path.
+- `kermi_bridge.py` — `number.heizungskeller_em_kermi_bridge_kermi_dhw_one_shot_setpoint` (uid `kermi_dhw_oneshot_setpoint`, °C, 0–85, step 0.5) via MQTT Discovery, and AppDaemon service `kermi_bridge/set_dhw_oneshot_setpoint` (`temperature`), registered only in legacy mode (`mqtt_discovery: false`); in MQTT mode the number entity is the write path.
 
 ## [0.13.0] — 2026-07-02
 
