@@ -229,6 +229,7 @@ Sensors available on **all firmware**:
 | `binary_sensor.kermi_evu_lock` | EVU lock active |
 | `binary_sensor.kermi_global_alarm` | Heat pump alarm active (`alarm_number` attribute holds the fault code) |
 | `sensor.kermi_fan_power` | Fan power draw (%) |
+| `number.em_kermi_bridge_kermi_dhw_oneshot_setpoint` | DHW one-shot setpoint (°C, 0–85, step 0.5); writable via `number.set_value` in MQTT mode. Does not start a cycle — press the one-shot button. The bridge does not clamp; the ~54 °C heat-pump-only tank ceiling is the caller's concern |
 | `sensor.kermi_energy_mode_mk1` / `_mk2` / `_hk` | EnergyMode per circuit (ECO/NORMAL/COMFORT/CUSTOM) |
 | `sensor.kermi_bridge_status` | Bridge health (`ok` / `unavailable` / `auth_error`) |
 
@@ -253,6 +254,7 @@ Sensors available on **Rubin / x-change dynamic pro firmware only** (show `unava
 | `kermi_bridge/refresh` | — | Force an immediate poll |
 | `kermi_bridge/set_dhw_setpoint` | `temperature` (float, °C) | Sets DHW tank setpoint (0–85 °C) |
 | `kermi_bridge/trigger_dhw_oneshot` | — | Triggers a one-shot DHW heat cycle |
+| `kermi_bridge/set_dhw_oneshot_setpoint` | `temperature` (float, °C) | Sets the one-shot DHW target (0–85 °C). Legacy mode only (`mqtt_discovery: false`); in MQTT mode use `number.em_kermi_bridge_kermi_dhw_oneshot_setpoint`. Does not start a cycle — use `trigger_dhw_oneshot`. Heat-pump-only ceiling (~54 °C) is a caller concern |
 | `kermi_bridge/set_quiet_mode` | `enabled` (bool) | Enables/disables compressor quiet mode |
 | `kermi_bridge/set_heating_curve_shift` | `shift` (int, K), `circuits` (optional) | Parallel-shifts the heating curve for the specified circuit(s) |
 
